@@ -1,0 +1,24 @@
+# --- Core Orchestration & Ingestion ---
+prefect
+httpx
+pydantic
+pydantic-settings
+
+# --- Database & SQL Stack ---
+sqlalchemy
+psycopg2-binary
+alembic
+asyncpg
+
+# --- Backend API ---
+fastapi
+uvicorn[standard]
+
+# --- Frontend Dashboard ---
+streamlit
+plotly
+streamlit-authenticator
+
+# --- Utilities ---
+python-dotenv
+asyncio
