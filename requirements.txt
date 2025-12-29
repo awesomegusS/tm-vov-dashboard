@@ -22,3 +22,4 @@ streamlit-authenticator
 # --- Utilities ---
 python-dotenv
 asyncio
+hyperliquid-python-sdk   
