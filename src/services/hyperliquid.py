@@ -12,7 +12,7 @@ class HyperliquidClient:
         """
         # The SDK's 'post' method automatically handles the /info endpoint logic
         # and headers that were causing the empty list issue.
-        return self.info.post("/info", {"type": "vaultSummaries"})
+        return self.info.vaults()
 
     def fetch_vault_details(self, vault_address: str) -> dict:
         """

@@ -1,6 +1,9 @@
+import os
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, PostgresDsn
 
+load_dotenv()
 class Settings(BaseSettings):
     # App Settings
     APP_NAME: str = "HyperEVM Vault Discovery"
@@ -9,13 +12,13 @@ class Settings(BaseSettings):
     # Database Settings
     # Pydantic will validate that this is a valid Postgres URL
     DATABASE_URL: PostgresDsn = Field(
-        'postgresql://postgres:MhTFAfdMyVzKoyiUJbzLENdeKirpzgbp@shuttle.proxy.rlwy.net:50128/railway',
+        os.getenv('DATABASE_URL'),
         alias="DATABASE_URL"
     )
     
     # Prefect Settings
-    PREFECT_API_URL: str | None = 'https://api.prefect.cloud/api/accounts/f88e212b-d748-4dff-a1ff-df2c35a27c1c/workspaces/cc372b5d-d23a-467a-8f1e-725260210a30'
-    PREFECT_API_KEY: str | None = 'pnu_QoZRT9MIULFeZvbI0oY7UOLrsmvTXR1Dxc6D'
+    PREFECT_API_URL: str | None = os.getenv('PREFECT_API_URL')
+    PREFECT_API_KEY: str | None = os.getenv('PREFECT_API_KEY')
     
     # Hyperliquid API Settings
     HL_BASE_URL: str = "https://api.hyperliquid.xyz/info"
