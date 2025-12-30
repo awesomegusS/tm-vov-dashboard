@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, PostgresDsn
 
+from .prefect_secrets import env_or_prefect_secret
+
 load_dotenv()
 class Settings(BaseSettings):
     # App Settings
@@ -11,12 +13,15 @@ class Settings(BaseSettings):
     
     # Database Settings
     # Pydantic will validate that this is a valid Postgres URL
-    DATABASE_URL: PostgresDsn = Field(
-        os.getenv('DATABASE_URL'),
-        alias="DATABASE_URL"
+    # Keep this optional so imports don't fail in environments where the DB
+    # url is only available at runtime (e.g. Prefect-managed execution).
+    DATABASE_URL: PostgresDsn | None = Field(
+        env_or_prefect_secret("DATABASE_URL", "database-url"),
+        alias="DATABASE_URL",
     )
     
     # Prefect Settings
+    # These are typically provided by the runtime (Prefect worker/agent).
     PREFECT_API_URL: str | None = os.getenv('PREFECT_API_URL')
     PREFECT_API_KEY: str | None = os.getenv('PREFECT_API_KEY')
     
@@ -25,7 +30,7 @@ class Settings(BaseSettings):
     
     # Security (for Streamlit Authenticator)
     AUTH_COOKIE_NAME: str = "hyper_vault_auth"
-    AUTH_SIGNATURE_KEY: str = "super-secret-key-change-this"
+    AUTH_SIGNATURE_KEY: str = env_or_prefect_secret("AUTH_SIGNATURE_KEY", "auth-signature-key") or "super-secret-key-change-this"
     AUTH_EXPIRY_DAYS: int = 30
 
     # Config for Pydantic V2
