@@ -2,3 +2,13 @@
 __pycache__/
 .venv/
 .DS_Store
+
+# Generated vault snapshot data
+data/vaults-*.json
+data/vaults-latest.json
+data/vaults-summary-latest.json
+
+# Local scratch scripts
+rando.py
+
+archive
