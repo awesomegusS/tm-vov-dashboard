@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from typing import Any
+from prefect.schedules import Cron
 
 
 DEFAULT_SOURCE = "https://github.com/awesomegusS/tm-vov-dashboard.git"
@@ -80,7 +81,7 @@ def deploy_from_source(
 			deploy_kwargs: dict[str, Any] = {
 				"name": spec.name,
 				"work_pool_name": work_pool_name,
-				"cron": spec.cron,
+				"schedules": [Cron(spec.cron, timezone=timezone)]
 			}
 			if work_queue_name:
 				deploy_kwargs["work_queue_name"] = work_queue_name
@@ -89,10 +90,6 @@ def deploy_from_source(
 			# If provided, pass as a job variable (matches Prefect docs: job_variables).
 			if image:
 				deploy_kwargs["job_variables"] = {"image": image}
-
-			# Optional timezone override for the cron schedule.
-			if timezone:
-				deploy_kwargs["timezone"] = timezone
 
 			remote_flow.deploy(**deploy_kwargs)
 			print(f"Deployed {spec.name}")
