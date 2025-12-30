@@ -133,8 +133,8 @@ def main() -> None:
 	)
 	p.add_argument(
 		"--timezone",
-		default=None,
-		help="Optional schedule timezone (e.g. 'UTC').",
+		default="UTC",
+		help="Schedule timezone for the cron (default: UTC).",
 	)
 	args = p.parse_args()
 
