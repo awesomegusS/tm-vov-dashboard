@@ -81,7 +81,7 @@ def deploy_from_source(
 			deploy_kwargs: dict[str, Any] = {
 				"name": spec.name,
 				"work_pool_name": work_pool_name,
-				"schedules": [Cron(spec.cron, timezone=timezone)]
+				"schedules": [Cron(spec.cron, timezone='UTC')]
 			}
 			if work_queue_name:
 				deploy_kwargs["work_queue_name"] = work_queue_name

@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from src.services.hyperliquid import HyperliquidClient
 from src.core.database import AsyncSessionLocal
-from src.models.vault import VaultMetric
+from src.models.vault import Vault, VaultMetric
 
 
 def extract_addresses_from_json(path: Path) -> List[str]:
@@ -21,6 +21,22 @@ def extract_addresses_from_json(path: Path) -> List[str]:
             addrs.append(addr)
     seen = set()
     out = []
+    for a in addrs:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+    return out
+
+
+def extract_addresses_from_stats(vaults: List[Dict[str, Any]]) -> List[str]:
+    addrs: List[str] = []
+    for v in vaults:
+        summary = (v or {}).get("summary") or {}
+        addr = summary.get("vaultAddress") or v.get("vaultAddress")
+        if addr:
+            addrs.append(addr)
+    seen = set()
+    out: List[str] = []
     for a in addrs:
         if a not in seen:
             seen.add(a)
@@ -86,18 +102,72 @@ async def insert_metric_rows(rows: List[Dict[str, Any]]):
     return len(rows)
 
 
+@task
+async def upsert_vault_rows_from_stats(vaults: List[Dict[str, Any]]):
+    """Ensure vaults exist before inserting metrics (avoids FK violations)."""
+    logger = get_run_logger()
+    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    rows: List[Dict[str, Any]] = []
+    for v in vaults:
+        summary = (v or {}).get("summary") or {}
+        addr = summary.get("vaultAddress") or v.get("vaultAddress")
+        if not addr:
+            continue
+        rows.append(
+            {
+                "vault_address": addr,
+                "name": summary.get("name") or v.get("name"),
+                "leader_address": summary.get("leader") or v.get("leader"),
+                "is_closed": summary.get("isClosed") or v.get("isClosed") or False,
+                "updated_at": now,
+            }
+        )
+
+    if not rows:
+        logger.warning("No vault rows to upsert")
+        return 0
+
+    BATCH = 1000
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            for i in range(0, len(rows), BATCH):
+                chunk = rows[i : i + BATCH]
+                stmt = insert(Vault).values(chunk)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[Vault.vault_address],
+                    set_={
+                        "name": stmt.excluded.name,
+                        "leader_address": stmt.excluded.leader_address,
+                        "is_closed": stmt.excluded.is_closed,
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+                await session.execute(stmt)
+
+    logger.info(f"Upserted {len(rows)} vaults (pre-metrics)")
+    return len(rows)
+
+
 @flow(name="Upsert Vault Metrics (info to vault_metrics)")
 async def upsert_vault_metrics_flow(vaults_json: str = "data/vaults-latest.json", concurrency: int = 10, limit: Optional[int] = None):
     logger = get_run_logger()
     p = Path(vaults_json)
-    if not p.exists():
-        raise SystemExit(f"Vaults file not found: {p}")
-
-    addrs = extract_addresses_from_json(p)
-    if limit:
-        addrs = addrs[:limit]
 
     client = HyperliquidClient()
+
+    # Always fetch the canonical vault list from stats for reliability in
+    # Prefect-managed workers (repo clones won't contain generated data/ files).
+    vaults_stats = await asyncio.to_thread(client.fetch_all_stats)
+    await upsert_vault_rows_from_stats(vaults_stats)
+
+    if p.exists():
+        addrs = extract_addresses_from_json(p)
+    else:
+        logger.warning(f"Vaults file not found: {p}; falling back to stats endpoint")
+        addrs = extract_addresses_from_stats(vaults_stats)
+
+    if limit:
+        addrs = addrs[:limit]
     logger.info(f"Fetching details for {len(addrs)} addresses (concurrency={concurrency})")
     details = await client.fetch_vault_details_batch(addrs, concurrency=concurrency)
     rows = build_metric_rows_from_details(details)
