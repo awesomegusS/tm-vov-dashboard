@@ -29,13 +29,13 @@ class DeploymentSpec:
 
 DEPLOYMENTS: tuple[DeploymentSpec, ...] = (
 	DeploymentSpec(
-		name="hourly-vault-summaries",
-		entrypoint="src/pipelines/flows/upsert_vaults.py:upsert_vaults_flow",
+		name="hourly-vault-metrics",
+		entrypoint="src/pipelines/flows/upsert_vaults.py:upsert_vault_metrics_flow",
 		cron="0 * * * *",
 	),
 	DeploymentSpec(
-		name="4h-vault-details",
-		entrypoint="src/pipelines/flows/upsert_vault_metrics.py:upsert_vault_metrics_flow",
+		name="4h-top-500",
+		entrypoint="src/pipelines/flows/upsert_vaults.py:update_top_500_flow",
 		cron="0 */4 * * *",
 	),
 )
