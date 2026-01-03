@@ -93,34 +93,51 @@ def _extract_pnl(portfolio: Dict , period_key: str):
             if not pair:
                 continue
             key = pair[0]
-            if key == period_key:
-                body = pair[1] if len(pair) > 1 else {}
-                pnl_history = body.get("pnlHistory") or []
-                if pnl_history:
-                    last = pnl_history[-1]
-                    return float(last[1])
+            if key != period_key:
+                continue
+            body = pair[1] if len(pair) > 1 else {}
+            pnl_history = (body or {}).get("pnlHistory") or []
+            if pnl_history:
+                last = pnl_history[-1]
+                # [timestamp_ms, value]
+                return float(last[1])
         return None
     except Exception:
         return None
             
 
 def _calculate_max_drawdown(portfolio: Dict, period_key: str):
+    """Return max drawdown for the period as a percent (e.g. 25.6 for 25.6%)."""
     try:
         for pair in (portfolio or []):
             if not pair:
                 continue
             key = pair[0]
-            if key == period_key:
-                body = pair[1] if len(pair) > 1 else {}
-                accValHist = body.get("accountValueHistory") or []
-                peak = float("-inf")
-                mdd = 0.0  # as a negative number (or keep as positive)
-                for accVal in accValHist:
-                    _, value = accVal.items()
-                    peak = max(peak, accVal)
-                    dd = (accVal - peak) / peak  # negative or 0
-                    mdd = min(mdd, dd)
-        return -mdd  # positive fraction, e.g. 0.256 = 25.6%
+            if key != period_key:
+                continue
+            body = pair[1] if len(pair) > 1 else {}
+            acc_hist = (body or {}).get("accountValueHistory") or []
+            values: List[float] = []
+            for point in acc_hist:
+                # expected: [timestamp_ms, value_as_str]
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    values.append(float(point[1]))
+            if not values:
+                return None
+
+            peak = values[0]
+            max_dd = 0.0  # fraction, negative
+            for v in values:
+                if v > peak:
+                    peak = v
+                if peak > 0:
+                    dd = (v - peak) / peak
+                    if dd < max_dd:
+                        max_dd = dd
+
+            # Store as positive percent for readability (matches Numeric(20,2)).
+            return float(-max_dd * 100.0)
+        return None
     except Exception:
         return None
             
@@ -131,24 +148,51 @@ def _extract_volume(portfolio: Dict, period_key: str):
             if not pair:
                 continue
             key = pair[0]
-
-            # select period
-            if key == period_key:
-                body = pair[1] if len(pair) > 1 else {}
-                vlm = body.get("vlm") or []
-        return vlm
+            if key != period_key:
+                continue
+            body = pair[1] if len(pair) > 1 else {}
+            vlm = (body or {}).get("vlm")
+            if vlm is None:
+                return None
+            # API returns vlm as a numeric string for each period
+            return float(vlm)
     except Exception:
         return None
 
 def _extract_timestamp(portfolio: Dict):
+    """Extract a best-effort timestamp as a timezone-aware datetime.
+
+    Hyperliquid returns timestamps in millis in the portfolio history arrays.
+    """
     try:
         if not portfolio:
-            raise Exception  
-        
-        pnlHist = portfolio[1].get('pnlHistory')
-        timestamp = pnlHist[-1][0] # fetch the last timestamp as of, it's global accross all history last object, also datetime.now() | when a request was sent to the endpoint
-        return timestamp
-    except Exception as e: # should refactor
+            return None
+        # Prefer the most recent timestamp from day pnl history, else any period.
+        def pick_ts(period: str) -> Optional[int]:
+            for pair in (portfolio or []):
+                if not pair or pair[0] != period:
+                    continue
+                body = pair[1] if len(pair) > 1 else {}
+                pnl = (body or {}).get("pnlHistory") or []
+                if pnl and isinstance(pnl[-1], (list, tuple)) and len(pnl[-1]) >= 1:
+                    return int(pnl[-1][0])
+                acc = (body or {}).get("accountValueHistory") or []
+                if acc and isinstance(acc[-1], (list, tuple)) and len(acc[-1]) >= 1:
+                    return int(acc[-1][0])
+            return None
+
+        ts = pick_ts("day")
+        if ts is None:
+            for p in ("week", "month", "allTime"):
+                ts = pick_ts(p)
+                if ts is not None:
+                    break
+        if ts is None:
+            return None
+
+        # millis -> datetime
+        return datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)
+    except Exception:
         return None
 
 def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -162,9 +206,12 @@ def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str
         follower_count = len(follower_list) if isinstance(follower_list, list) else None
 
         portfolio = v.get("portfolio") or []
+
+        # Always set a non-null metric timestamp (DB PK is NOT NULL).
+        ts = _extract_timestamp(portfolio) or now
         out.append(
             {
-                "timestampz": _extract_timestamp(portfolio), # use any of the last portfolio historical timestamp values 
+                "timestampz": ts,
                 "vault_address": addr,
 
                 "max_distributable_tvl": float(v.get("maxDistributable", 0) or 0),
@@ -177,11 +224,11 @@ def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str
                 "pnl_month": _extract_pnl(portfolio, "month"),
                 "pnl_all_time": _extract_pnl(portfolio, "allTime"),
 
-                "vlm_day":_extract_volume(portfolio, "day"),
-                "vlm_week":  _extract_volume(portfolio, "week"),
-                "vlm_month":  _extract_volume(portfolio, "month"),
+                "vlm_day": _extract_volume(portfolio, "day"),
+                "vlm_week": _extract_volume(portfolio, "week"),
+                "vlm_month": _extract_volume(portfolio, "month"),
                 "vlm_all_time": _extract_volume(portfolio, "allTime"),
-                
+
                 "max_drawdown_day": _calculate_max_drawdown(portfolio, "day"),
                 "max_drawdown_week": _calculate_max_drawdown(portfolio, "week"),
                 "max_drawdown_month": _calculate_max_drawdown(portfolio, "month"),
@@ -276,6 +323,21 @@ async def upsert_vault_metrics_flow(concurrency: int = 10, limit: Optional[int] 
     details = await client.fetch_vault_details_batch(addrs, concurrency=concurrency)
 
     rows = build_metric_rows_from_details(details)
+
+    # Minimal observability for the parsed time-series scalars.
+    if rows:
+        non_null_vlm_day = sum(1 for r in rows if r.get("vlm_day") is not None)
+        non_null_mdd_day = sum(1 for r in rows if r.get("max_drawdown_day") is not None)
+        logger.info(
+            f"Parsed metrics: rows={len(rows)} vlm_day_non_null={non_null_vlm_day} max_drawdown_day_non_null={non_null_mdd_day}"
+        )
+        for r in rows[:5]:
+            logger.info(
+                "sample metrics "
+                f"addr={r.get('vault_address')} time={r.get('timestampz')} "
+                f"vlm_day={r.get('vlm_day')} vlm_month={r.get('vlm_month')} "
+                f"mdd_day={r.get('max_drawdown_day')} mdd_all_time={r.get('max_drawdown_all_time')}"
+            )
     await upsert_metric_rows(rows)
     logger.info("Upsert vault and metrics complete")
 
