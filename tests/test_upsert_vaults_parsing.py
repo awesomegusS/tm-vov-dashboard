@@ -114,6 +114,18 @@ def test_extract_addresses_from_vaults_json_dedupes_and_orders():
     assert _extract_addresses_from_vaults_json(vaults) == ["0xaaa", "0xbbb", "0xccc"]
 
 
+def test_extract_addresses_from_vaults_json_active_only_skips_closed():
+    vaults = [
+        {"summary": {"vaultAddress": "0xopen", "isClosed": False}},
+        {"summary": {"vaultAddress": "0xclosed", "isClosed": True}},
+        # fallback to top-level isClosed
+        {"vaultAddress": "0xopen2", "isClosed": False},
+        {"vaultAddress": "0xclosed2", "isClosed": True},
+    ]
+
+    assert _extract_addresses_from_vaults_json(vaults, active_only=True) == ["0xopen", "0xopen2"]
+
+
 def test_build_metric_rows_handles_missing_portfolio_and_skips_errors():
     details = {
         "0xgood": {

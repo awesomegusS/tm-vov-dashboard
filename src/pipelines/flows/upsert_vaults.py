@@ -344,11 +344,20 @@ async def upsert_metric_rows(rows: List[Dict[str, Any]]):
 
 
 
-def _extract_addresses_from_vaults_json(vaults: List[Dict[str, Any]]) -> List[str]:
+def _extract_addresses_from_vaults_json(
+    vaults: List[Dict[str, Any]],
+    *,
+    active_only: bool = False,
+) -> List[str]:
     addrs: List[str] = []
     for v in vaults:
         summary = (v or {}).get("summary") or {}
         addr = summary.get("vaultAddress") or v.get("vaultAddress")
+        is_closed = summary.get("isClosed")
+        if is_closed is None:
+            is_closed = v.get("isClosed")
+        if active_only and bool(is_closed):
+            continue
         if addr:
             addrs.append(addr)
     seen = set()
@@ -374,7 +383,12 @@ async def upsert_vault_metrics_flow(concurrency: int = 10, limit: Optional[int] 
     await upsert_vault_rows(vault_rows)
 
     # upsert vault performance
-    addrs = _extract_addresses_from_vaults_json(vaults_json)
+    all_addrs = _extract_addresses_from_vaults_json(vaults_json)
+    active_addrs = _extract_addresses_from_vaults_json(vaults_json, active_only=True)
+    logger.info(f"Stats addresses: total={len(all_addrs)} active={len(active_addrs)}")
+
+    # Default to active vaults only (closed vaults often have no meaningful metrics).
+    addrs = active_addrs
     if limit:
         addrs = addrs[:limit]
     logger.info(f"Fetching details for {len(addrs)} addresses (concurrency={concurrency})")
