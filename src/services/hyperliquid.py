@@ -70,7 +70,7 @@ class HyperliquidClient:
         addresses: List[str],
         concurrency: int = 20,
         timeout: int = 30,
-        max_retries: int = 3,
+        max_retries: int = 8,
         requests_per_second: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Async fetch of vault details for multiple addresses via POST /info.

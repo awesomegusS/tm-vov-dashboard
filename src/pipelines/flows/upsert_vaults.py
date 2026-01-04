@@ -322,42 +322,50 @@ async def upsert_metric_rows(rows: List[Dict[str, Any]]):
     if not rows:
         logger.info("No metric rows to insert")
         return 0
+
+    # asyncpg has a hard limit of 32767 bind parameters per statement.
+    # Each metric row binds ~20 columns, so we must batch.
+    BATCH = 1000
+    inserted = 0
     
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            # await session.execute(insert(VaultMetric), rows)
-            # do upsert here
-            stmt = insert(VaultMetric).values(rows)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[VaultMetric.timestampz, VaultMetric.vault_address],
-                set_={
-                    "apr": stmt.excluded.apr,
-                    "max_distributable_tvl": stmt.excluded.max_distributable_tvl,
-                    "leader_commission": stmt.excluded.leader_commission,
-                    "follower_count": stmt.excluded.follower_count,
+            for i in range(0, len(rows), BATCH):
+                chunk = rows[i : i + BATCH]
+                if not chunk:
+                    continue
+                stmt = insert(VaultMetric).values(chunk)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[VaultMetric.timestampz, VaultMetric.vault_address],
+                    set_={
+                        "apr": stmt.excluded.apr,
+                        "max_distributable_tvl": stmt.excluded.max_distributable_tvl,
+                        "leader_commission": stmt.excluded.leader_commission,
+                        "follower_count": stmt.excluded.follower_count,
 
-                    "pnl_day": stmt.excluded.pnl_day,
-                    "pnl_week": stmt.excluded.pnl_week,
-                    "pnl_month": stmt.excluded.pnl_month,
-                    "pnl_all_time": stmt.excluded.pnl_all_time,
+                        "pnl_day": stmt.excluded.pnl_day,
+                        "pnl_week": stmt.excluded.pnl_week,
+                        "pnl_month": stmt.excluded.pnl_month,
+                        "pnl_all_time": stmt.excluded.pnl_all_time,
 
-                    "vlm_day": stmt.excluded.vlm_day,
-                    "vlm_week": stmt.excluded.vlm_week,
-                    "vlm_month": stmt.excluded.vlm_month,
-                    "vlm_all_time": stmt.excluded.vlm_all_time,
+                        "vlm_day": stmt.excluded.vlm_day,
+                        "vlm_week": stmt.excluded.vlm_week,
+                        "vlm_month": stmt.excluded.vlm_month,
+                        "vlm_all_time": stmt.excluded.vlm_all_time,
 
-                    "max_drawdown_day": stmt.excluded.max_drawdown_day,
-                    "max_drawdown_week": stmt.excluded.max_drawdown_week,
-                    "max_drawdown_month": stmt.excluded.max_drawdown_month,
-                    "max_drawdown_all_time": stmt.excluded.max_drawdown_all_time,
-                    
-                    "updated_at": stmt.excluded.updated_at
-                },
-            )
-            await session.execute(stmt)
+                        "max_drawdown_day": stmt.excluded.max_drawdown_day,
+                        "max_drawdown_week": stmt.excluded.max_drawdown_week,
+                        "max_drawdown_month": stmt.excluded.max_drawdown_month,
+                        "max_drawdown_all_time": stmt.excluded.max_drawdown_all_time,
+                        
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+                await session.execute(stmt)
+                inserted += len(chunk)
 
-    logger.info(f"Inserted {len(rows)} metric rows")
-    return len(rows)
+    logger.info(f"Inserted {inserted} metric rows")
+    return inserted
 
 
 
