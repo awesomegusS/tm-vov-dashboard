@@ -386,7 +386,12 @@ def _extract_addresses_from_vaults_json(
     return out
 
 @flow(name="Upsert Vault and Performance Metrics")
-async def upsert_vault_metrics_flow(concurrency: int = 10, limit: Optional[int] = None):
+async def upsert_vault_metrics_flow(
+    concurrency: int = 10,
+    limit: Optional[int] = None,
+    active_only: bool = True,
+    addresses: Optional[List[str]] = None,
+):
     """Every 1 hour: Get latest vault info and perf metrics for all vaults"""
     logger = get_run_logger()
     client = HyperliquidClient()
@@ -400,12 +405,14 @@ async def upsert_vault_metrics_flow(concurrency: int = 10, limit: Optional[int] 
     await upsert_vault_rows(vault_rows)
 
     # upsert vault performance
-    all_addrs = _extract_addresses_from_vaults_json(vaults_json)
-    active_addrs = _extract_addresses_from_vaults_json(vaults_json, active_only=True)
-    logger.info(f"Stats addresses: total={len(all_addrs)} active={len(active_addrs)}")
-
-    # Default to active vaults only (closed vaults often have no meaningful metrics).
-    addrs = active_addrs
+    if addresses:
+        addrs = addresses
+        logger.info(f"Using explicit addresses list: n={len(addrs)}")
+    else:
+        all_addrs = _extract_addresses_from_vaults_json(vaults_json)
+        active_addrs = _extract_addresses_from_vaults_json(vaults_json, active_only=True)
+        logger.info(f"Stats addresses: total={len(all_addrs)} active={len(active_addrs)}")
+        addrs = active_addrs if active_only else all_addrs
     if limit:
         addrs = addrs[:limit]
     logger.info(f"Fetching details for {len(addrs)} addresses (concurrency={concurrency})")

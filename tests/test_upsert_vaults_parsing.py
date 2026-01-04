@@ -212,3 +212,11 @@ def test_extract_timestamp_falls_back_to_perp_periods():
     ts = _extract_timestamp(portfolio)
     assert ts is not None
     assert ts.tzinfo is not None
+
+
+def test_extract_addresses_active_only_false_includes_closed():
+    vaults = [
+        {"summary": {"vaultAddress": "0xopen", "isClosed": False}},
+        {"summary": {"vaultAddress": "0xclosed", "isClosed": True}},
+    ]
+    assert _extract_addresses_from_vaults_json(vaults, active_only=False) == ["0xopen", "0xclosed"]
