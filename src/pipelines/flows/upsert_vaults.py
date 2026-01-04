@@ -391,6 +391,7 @@ async def upsert_vault_metrics_flow(
     limit: Optional[int] = None,
     active_only: bool = True,
     addresses: Optional[List[str]] = None,
+    requests_per_second: Optional[float] = 3.0,
 ):
     """Every 1 hour: Get latest vault info and perf metrics for all vaults"""
     logger = get_run_logger()
@@ -415,8 +416,14 @@ async def upsert_vault_metrics_flow(
         addrs = active_addrs if active_only else all_addrs
     if limit:
         addrs = addrs[:limit]
-    logger.info(f"Fetching details for {len(addrs)} addresses (concurrency={concurrency})")
-    details = await client.fetch_vault_details_batch(addrs, concurrency=concurrency)
+    logger.info(
+        f"Fetching details for {len(addrs)} addresses (concurrency={concurrency} rps={requests_per_second})"
+    )
+    details = await client.fetch_vault_details_batch(
+        addrs,
+        concurrency=concurrency,
+        requests_per_second=requests_per_second,
+    )
 
     diag = _summarize_details_results(addrs, details)
     logger.info(

@@ -1,7 +1,31 @@
 import asyncio
 import httpx
 import requests
-from typing import List, Dict, Any
+import random
+from typing import List, Dict, Any, Optional
+
+
+class AsyncRateLimiter:
+    """A lightweight async rate limiter.
+
+    Ensures no more than `rate_per_second` acquisitions per second across all
+    awaiting tasks. This prevents bursty concurrency from causing 429s.
+    """
+
+    def __init__(self, rate_per_second: float):
+        if rate_per_second <= 0:
+            raise ValueError("rate_per_second must be > 0")
+        self._min_interval = 1.0 / rate_per_second
+        self._lock = asyncio.Lock()
+        self._next_allowed = 0.0
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = asyncio.get_running_loop().time()
+            if now < self._next_allowed:
+                await asyncio.sleep(self._next_allowed - now)
+                now = asyncio.get_running_loop().time()
+            self._next_allowed = now + self._min_interval
 
 
 def _is_retryable_exception(exc: Exception) -> bool:
@@ -47,12 +71,14 @@ class HyperliquidClient:
         concurrency: int = 20,
         timeout: int = 30,
         max_retries: int = 3,
+        requests_per_second: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Async fetch of vault details for multiple addresses via POST /info.
 
         Returns a dict mapping address -> payload or {'error': msg}.
         """
         sem = asyncio.Semaphore(concurrency)  # type: ignore[name-defined]
+        limiter = AsyncRateLimiter(requests_per_second) if requests_per_second else None
         results: Dict[str, Any] = {}
 
         async with httpx.AsyncClient(timeout=timeout, base_url=self.api_base) as client:
@@ -62,6 +88,8 @@ class HyperliquidClient:
                     last_exc: Exception | None = None
                     for attempt in range(max_retries + 1):
                         try:
+                            if limiter:
+                                await limiter.acquire()
                             r = await client.post(
                                 "/info",
                                 json={"type": "vaultDetails", "vaultAddress": addr},
@@ -74,9 +102,22 @@ class HyperliquidClient:
                             last_exc = e
                             if attempt >= max_retries or not _is_retryable_exception(e):
                                 break
-                            # Exponential backoff with a small cap.
-                            delay = min(2.0, 0.25 * (2**attempt))
-                            await asyncio.sleep(delay)
+
+                            # Exponential backoff with jitter. If the server
+                            # provides Retry-After (common for 429), respect it.
+                            delay = 0.25 * (2**attempt)
+                            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                                if e.response.status_code == 429:
+                                    ra = e.response.headers.get("Retry-After")
+                                    if ra:
+                                        try:
+                                            delay = max(delay, float(ra))
+                                        except Exception:
+                                            pass
+                                    delay = max(delay, 2.0)
+                            delay = min(30.0, delay)
+                            jitter = random.uniform(0.8, 1.3)
+                            await asyncio.sleep(delay * jitter)
 
                     # Always write a result for this address.
                     if isinstance(last_exc, httpx.HTTPStatusError):
