@@ -196,10 +196,15 @@ def _extract_timestamp(portfolio: Dict):
         return None
 
 def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str, Any]]:
-    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    now = datetime.now(timezone.utc)
     out: List[Dict[str, Any]] = []
     for addr, data in details_map.items():
-        if not data or (isinstance(data, dict) and data.get("error")):
+        if not data:
+            continue
+        if isinstance(data, dict) and data.get("error"):
+            continue
+        if not isinstance(data, dict):
+            # Defensive: unexpected payload shape (e.g. list). Skip rather than crash.
             continue
         v = data
         follower_list = v.get("followers") or []
@@ -214,7 +219,11 @@ def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str
                 "timestampz": ts,
                 "vault_address": addr,
 
-                "max_distributable_tvl": float(v.get("maxDistributable", 0) or 0),
+                # Preserve missingness: if the API doesn't send this field,
+                # store NULL rather than 0.
+                "max_distributable_tvl": (
+                    float(v.get("maxDistributable")) if v.get("maxDistributable") is not None else None
+                ),
                 "apr": float(v.get("apr")) if v.get("apr") is not None else None,
                 "leader_commission": float(v.get("leaderCommission")) if v.get("leaderCommission") is not None else None,
                 "follower_count": follower_count,
@@ -239,6 +248,55 @@ def build_metric_rows_from_details(details_map: Dict[str, Any]) -> List[Dict[str
             }
         )
     return out
+
+
+def _summarize_details_results(addresses: List[str], details: Dict[str, Any]) -> Dict[str, Any]:
+    """Summarize the /info vaultDetails batch response for debugging coverage issues."""
+    total = len(addresses)
+    returned = len(details)
+
+    error_count = 0
+    empty_count = 0
+    non_dict_count = 0
+    missing_portfolio_count = 0
+    empty_portfolio_count = 0
+    missing_max_distributable_count = 0
+    status_code_counts: Dict[int, int] = {}
+
+    for _, payload in (details or {}).items():
+        if not payload:
+            empty_count += 1
+            continue
+        if isinstance(payload, dict) and payload.get("error"):
+            error_count += 1
+            sc = payload.get("status_code")
+            if isinstance(sc, int):
+                status_code_counts[sc] = status_code_counts.get(sc, 0) + 1
+            continue
+        if not isinstance(payload, dict):
+            non_dict_count += 1
+            continue
+
+        if "portfolio" not in payload:
+            missing_portfolio_count += 1
+        elif not (payload.get("portfolio") or []):
+            empty_portfolio_count += 1
+        if payload.get("maxDistributable") is None:
+            missing_max_distributable_count += 1
+
+    missing_results = max(0, total - returned)
+    return {
+        "addresses_total": total,
+        "details_returned": returned,
+        "missing_results": missing_results,
+        "error_count": error_count,
+        "empty_count": empty_count,
+        "non_dict_count": non_dict_count,
+        "missing_portfolio_count": missing_portfolio_count,
+        "empty_portfolio_count": empty_portfolio_count,
+        "missing_max_distributable_count": missing_max_distributable_count,
+        "status_code_counts": dict(sorted(status_code_counts.items(), key=lambda kv: kv[0])),
+    }
 
 
 @task
@@ -321,6 +379,15 @@ async def upsert_vault_metrics_flow(concurrency: int = 10, limit: Optional[int] 
         addrs = addrs[:limit]
     logger.info(f"Fetching details for {len(addrs)} addresses (concurrency={concurrency})")
     details = await client.fetch_vault_details_batch(addrs, concurrency=concurrency)
+
+    diag = _summarize_details_results(addrs, details)
+    logger.info(
+        "vaultDetails diagnostics "
+        f"addresses_total={diag['addresses_total']} details_returned={diag['details_returned']} "
+        f"missing_results={diag['missing_results']} error_count={diag['error_count']} empty_count={diag['empty_count']} "
+        f"non_dict_count={diag['non_dict_count']} missing_portfolio={diag['missing_portfolio_count']} empty_portfolio={diag['empty_portfolio_count']} "
+        f"missing_maxDistributable={diag['missing_max_distributable_count']} status_codes={diag['status_code_counts']}"
+    )
 
     rows = build_metric_rows_from_details(details)
 

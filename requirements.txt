@@ -24,3 +24,7 @@ python-dotenv
 asyncio
 hyperliquid-python-sdk   
 web3
+
+# --- Testing ---
+pytest
+pytest-asyncio
