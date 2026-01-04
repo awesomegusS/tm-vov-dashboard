@@ -167,7 +167,9 @@ def _extract_timestamp(portfolio: Dict):
     try:
         if not portfolio:
             return None
-        # Prefer the most recent timestamp from day pnl history, else any period.
+
+        # Prefer the most recent timestamp from day/week/month/allTime, but fall
+        # back to perp* or any other period if those are missing.
         def pick_ts(period: str) -> Optional[int]:
             for pair in (portfolio or []):
                 if not pair or pair[0] != period:
@@ -183,12 +185,27 @@ def _extract_timestamp(portfolio: Dict):
 
         ts = pick_ts("day")
         if ts is None:
-            for p in ("week", "month", "allTime"):
+            for p in ("week", "month", "allTime", "perpDay", "perpWeek", "perpMonth", "perpAllTime"):
                 ts = pick_ts(p)
                 if ts is not None:
                     break
         if ts is None:
-            return None
+            # Last resort: find the max timestamp across any period.
+            candidates: List[int] = []
+            for pair in (portfolio or []):
+                if not pair or len(pair) < 2:
+                    continue
+                body = pair[1] or {}
+                for key in ("pnlHistory", "accountValueHistory"):
+                    hist = (body or {}).get(key) or []
+                    if hist and isinstance(hist[-1], (list, tuple)) and len(hist[-1]) >= 1:
+                        try:
+                            candidates.append(int(hist[-1][0]))
+                        except Exception:
+                            pass
+            if not candidates:
+                return None
+            ts = max(candidates)
 
         # millis -> datetime
         return datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)

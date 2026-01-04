@@ -5,6 +5,7 @@ from src.pipelines.flows.upsert_vaults import (
     _calculate_max_drawdown,
     _extract_addresses_from_vaults_json,
     _extract_pnl,
+    _extract_timestamp,
     _extract_volume,
     _summarize_details_results,
     build_metric_rows_from_details,
@@ -193,3 +194,21 @@ def test_summarize_details_results_counts_errors_empty_non_dict_and_missing_fiel
     assert diag["empty_portfolio_count"] == 1
     assert diag["missing_max_distributable_count"] == 1
     assert diag["status_code_counts"] == {429: 1}
+
+
+def test_extract_timestamp_falls_back_to_perp_periods():
+    portfolio = [
+        [
+            "perpDay",
+            {
+                "pnlHistory": [
+                    [1000, "0.0"],
+                    [2000, "1.0"],
+                ]
+            },
+        ]
+    ]
+
+    ts = _extract_timestamp(portfolio)
+    assert ts is not None
+    assert ts.tzinfo is not None
