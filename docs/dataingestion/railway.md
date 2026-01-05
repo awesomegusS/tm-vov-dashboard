@@ -30,6 +30,40 @@ Your flows will show up there once you create deployments against that server.
 - Prefect Worker runs in the Railway `worker` process.
 - Deployments are created against that server and executed by the worker (no Prefect Cloud managed compute quota).
 
+## Quick setup (Railway)
+
+1) Create a Railway project from this repo.
+
+2) Add a Postgres service for **Prefect Server metadata**.
+
+3) Create a Railway service for the server:
+
+- Procfile process: `web`
+- Env vars:
+  - `PREFECT_API_DATABASE_CONNECTION_URL` = Postgres URL for Prefect metadata
+    - If you run into driver issues, try `postgresql+asyncpg://...`.
+
+After deploy, note the public URL for this service.
+
+4) Create a Railway service for the worker:
+
+- Procfile process: `worker`
+- Env vars:
+  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
+  - `DATABASE_URL` = Postgres URL for your app DB (where `vaults`/`vault_metrics` live)
+
+5) One-time initialization (run from your laptop):
+
+```bash
+export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
+prefect work-pool create hyperliquid-vault-ingestion --type process
+
+python scripts/deploy_prefect_flows.py \
+  --work-pool hyperliquid-vault-ingestion
+```
+
+Once deployments exist, Railway’s worker will pick up scheduled runs.
+
 ## Minimum required configuration
 
 At minimum:
