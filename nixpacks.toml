@@ -4,4 +4,7 @@
 [phases.setup]
 # Prefect deployments in this repo use the `git_clone` pull step.
 # The worker needs `git` available at runtime to clone the repo.
-aptPkgs = ["git"]
+# Railway uses Nixpacks; installing via Nix is the most reliable option.
+# We also keep `aptPkgs` as a fallback for images that support `apt-get`.
+nixPkgs = ["...", "git"]
+aptPkgs = ["...", "git"]

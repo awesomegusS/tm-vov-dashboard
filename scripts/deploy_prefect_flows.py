@@ -12,12 +12,19 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import sys
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 from prefect.schedules import Cron
 
 
 DEFAULT_SOURCE = "https://github.com/awesomegusS/tm-vov-dashboard.git"
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+	sys.path.insert(0, str(REPO_ROOT))
 
 
 @dataclass(frozen=True)
@@ -101,6 +108,12 @@ def deploy_from_source(
 				"work_pool_name": work_pool_name,
 				"schedules": [Cron(spec.cron, timezone=(timezone or "UTC"))],
 			}
+			# For a local-code deployment on a process worker, we intentionally do NOT
+			# build/push an image and we do NOT add pull steps. The worker is expected
+			# to have this repo available in its runtime filesystem.
+			if not use_remote_source:
+				deploy_kwargs["build"] = False
+				deploy_kwargs["push"] = False
 			if work_queue_name:
 				deploy_kwargs["work_queue_name"] = work_queue_name
 

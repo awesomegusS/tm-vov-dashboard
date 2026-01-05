@@ -109,5 +109,5 @@ Symptom:
 Fix on Railway:
 
 - Ensure the worker runtime includes `git`.
-- This repo includes a [nixpacks.toml](nixpacks.toml) that installs `git` via `aptPkgs`.
+- This repo includes a [nixpacks.toml](nixpacks.toml) that installs `git` via `nixPkgs` (and keeps `aptPkgs` as a fallback).
 - Redeploy the Railway worker service so the new runtime image is built.
