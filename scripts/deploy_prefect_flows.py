@@ -12,19 +12,13 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import sys
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 from prefect.schedules import Cron
 
 
+
 DEFAULT_SOURCE = "https://github.com/awesomegusS/tm-vov-dashboard.git"
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-	sys.path.insert(0, str(REPO_ROOT))
 
 
 @dataclass(frozen=True)
@@ -99,6 +93,8 @@ def deploy_from_source(
 	for spec in DEPLOYMENTS:
 		try:
 			if use_remote_source:
+				if not source:
+					raise ValueError("--source is required when using --use-remote-source")
 				deploy_flow = flow.from_source(source=src, entrypoint=spec.entrypoint)
 			else:
 				deploy_flow = _import_flow_from_entrypoint(spec.entrypoint)
@@ -108,12 +104,6 @@ def deploy_from_source(
 				"work_pool_name": work_pool_name,
 				"schedules": [Cron(spec.cron, timezone=(timezone or "UTC"))],
 			}
-			# For a local-code deployment on a process worker, we intentionally do NOT
-			# build/push an image and we do NOT add pull steps. The worker is expected
-			# to have this repo available in its runtime filesystem.
-			if not use_remote_source:
-				deploy_kwargs["build"] = False
-				deploy_kwargs["push"] = False
 			if work_queue_name:
 				deploy_kwargs["work_queue_name"] = work_queue_name
 
@@ -133,7 +123,7 @@ def deploy_from_source(
 
 
 def main() -> None:
-	p = argparse.ArgumentParser(description="Create Prefect deployments via remote code storage (git).")
+	p = argparse.ArgumentParser(description="Create Prefect deployments (local code).")
 	p.add_argument(
 		"--work-pool",
 		required=True,
@@ -146,18 +136,22 @@ def main() -> None:
 	)
 	p.add_argument(
 		"--use-remote-source",
-		action="store_true",
-		help="Use remote code storage pull steps (git clone). Default is local-code deployments (recommended on Railway).",
+		# action="store_true",
+		default=True,
+		help="Use remote code storage pull steps (git clone). Default is local-code deployments.",
 	)
 	p.add_argument(
 		"--source",
 		default=DEFAULT_SOURCE,
-		help=f"Remote code storage source (git URL, s3://, gs://, az://). Default: {DEFAULT_SOURCE}",
+		help=(
+			"Remote code storage source (git URL, s3://, gs://, az://). "
+			"Required when using --use-remote-source."
+		),
 	)
 	p.add_argument(
 		"--ref",
 		default=None,
-		help="Optional git ref (branch/tag/commit). Used when supported by your Prefect install.",
+		help="Optional git ref (branch/tag/commit). Used only with --use-remote-source.",
 	)
 	p.add_argument(
 		"--image",
