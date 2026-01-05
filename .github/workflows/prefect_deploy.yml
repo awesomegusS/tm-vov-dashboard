@@ -15,8 +15,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
-      PREFECT_DEPLOY_SOURCE: ${{ secrets.PREFECT_DEPLOY_SOURCE }}
+      PREFECT_API_URL: ${{ vars.PREFECT_API_URL }}
+      PREFECT_DEPLOY_SOURCE: ${{ vars.PREFECT_DEPLOY_SOURCE }}
 
     steps:
       - name: Checkout
@@ -35,11 +35,11 @@ jobs:
       - name: Validate Prefect config
         run: |
           if [ -z "$PREFECT_API_URL" ]; then
-            echo "Missing secrets.PREFECT_API_URL (e.g. https://<prefect-server>/api)" >&2
+            echo "Missing vars.PREFECT_API_URL (e.g. https://<prefect-server>/api)" >&2
             exit 1
           fi
           if [ -z "$PREFECT_DEPLOY_SOURCE" ]; then
-            echo "Missing secrets.PREFECT_DEPLOY_SOURCE (e.g. https://github.com/<org>/<repo>.git)" >&2
+            echo "Missing vars.PREFECT_DEPLOY_SOURCE (e.g. https://github.com/<org>/<repo>.git)" >&2
             exit 1
           fi
           prefect version

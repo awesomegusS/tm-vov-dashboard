@@ -96,8 +96,8 @@ Note: `PREFECT_UI_API_URL` is the same setting as `PREFECT_SERVER_UI_API_URL`.
 You can automate “create work pool (idempotent) + redeploy deployments” on each change to flow code or the deployment script.
 
 - Workflow file: `.github/workflows/prefect_deploy.yml`
-- Required GitHub repo secret: `PREFECT_API_URL` (set to `https://<prefect-server-public-domain>/api`)
-- Required GitHub repo secret: `PREFECT_DEPLOY_SOURCE` (git URL used for deployments)
+- Required GitHub Actions variable: `PREFECT_API_URL` (set to `https://<prefect-server-public-domain>/api`)
+- Required GitHub Actions variable: `PREFECT_DEPLOY_SOURCE` (git URL used for deployments)
 
 ## Worker build notes
 

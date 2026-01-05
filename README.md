@@ -67,8 +67,8 @@ See: [docs/dataingestion/railway.md](docs/dataingestion/railway.md)
 
 This repo includes a workflow that can automatically re-register deployments when flow code changes:
 - Workflow: [.github/workflows/prefect_deploy.yml](.github/workflows/prefect_deploy.yml)
-- Required repo secret: `PREFECT_API_URL`
-- Optional repo secret: `PREFECT_DEPLOY_SOURCE`
+- Required GitHub Actions variable: `PREFECT_API_URL`
+- Required GitHub Actions variable: `PREFECT_DEPLOY_SOURCE`
 
 ## Roadmap
 
