@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Create Prefect v3 deployments (via Python) using remote code storage.
+"""Create Prefect v3 deployments.
 
-This follows the Prefect docs pattern:
+By default, this script deploys using *local code* (no pull steps). This is the
+most reliable approach on Railway when the worker is built from this repo.
 
-	flow.from_source(source=..., entrypoint=...).deploy(...)
-
-Using remote storage (git) fixes Prefect-managed pool failures where the
-runtime container does not include your repository.
+Optionally, you can deploy using remote code storage (git clone pull steps)
+with `--use-remote-source`.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 from dataclasses import dataclass
 from typing import Any
 from prefect.schedules import Cron
@@ -41,6 +41,20 @@ DEPLOYMENTS: tuple[DeploymentSpec, ...] = (
 )
 
 
+def _import_flow_from_entrypoint(entrypoint: str):
+	"""Import and return a Prefect `Flow` from an entrypoint.
+
+	Supports both:
+	- `src/pipelines/flows/foo.py:bar`
+	- `src.pipelines.flows.foo:bar`
+	"""
+	module_part, flow_attr = entrypoint.split(":", 1)
+	module_part = module_part.replace(".py", "")
+	module_part = module_part.replace("/", ".")
+	module = importlib.import_module(module_part)
+	return getattr(module, flow_attr)
+
+
 def _build_source(source: str, ref: str | None) -> Any:
 	"""Return a `source` value compatible with `flow.from_source`.
 
@@ -62,6 +76,7 @@ def _build_source(source: str, ref: str | None) -> Any:
 
 def deploy_from_source(
 	*,
+	use_remote_source: bool,
 	source: str,
 	ref: str | None,
 	work_pool_name: str,
@@ -71,12 +86,15 @@ def deploy_from_source(
 ) -> None:
 	from prefect import flow
 
-	src = _build_source(source, ref)
+	src = _build_source(source, ref) if use_remote_source else None
 
 	errors: list[str] = []
 	for spec in DEPLOYMENTS:
 		try:
-			remote_flow = flow.from_source(source=src, entrypoint=spec.entrypoint)
+			if use_remote_source:
+				deploy_flow = flow.from_source(source=src, entrypoint=spec.entrypoint)
+			else:
+				deploy_flow = _import_flow_from_entrypoint(spec.entrypoint)
 
 			deploy_kwargs: dict[str, Any] = {
 				"name": spec.name,
@@ -91,7 +109,7 @@ def deploy_from_source(
 			if image:
 				deploy_kwargs["job_variables"] = {"image": image}
 
-			remote_flow.deploy(**deploy_kwargs)
+			deploy_flow.deploy(**deploy_kwargs)
 			print(f"Deployed {spec.name}")
 		except Exception as exc:
 			errors.append(f"{spec.name}: {exc}")
@@ -112,6 +130,11 @@ def main() -> None:
 		"--work-queue",
 		default=None,
 		help="Optional work queue name (for managed pools this is often 'default')",
+	)
+	p.add_argument(
+		"--use-remote-source",
+		action="store_true",
+		help="Use remote code storage pull steps (git clone). Default is local-code deployments (recommended on Railway).",
 	)
 	p.add_argument(
 		"--source",
@@ -136,6 +159,7 @@ def main() -> None:
 	args = p.parse_args()
 
 	deploy_from_source(
+		use_remote_source=args.use_remote_source,
 		source=args.source,
 		ref=args.ref,
 		work_pool_name=args.work_pool,

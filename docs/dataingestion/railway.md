@@ -8,6 +8,8 @@ This repo includes a `Procfile` for hosting Prefect Server and a Prefect Worker 
   - `web`: starts Prefect Server
   - `worker`: starts Prefect Worker
 
+This repo also includes `start_worker.sh`, which the Procfile uses to ensure `git` is available at runtime (required for deployments that use Prefect’s `git_clone` pull step).
+
 ## Core idea
 
 - Prefect Server runs in the Railway `web` process.
