@@ -25,21 +25,21 @@ Two scheduled deployments are defined in `scripts/deploy_prefect_flows.py`:
 ```mermaid
 flowchart TD
   %% External sources
-  STATS[Hyperliquid Stats<br/>/Mainnet/vaults] -->|HTTP GET| FLOW1
-  INFO[Hyperliquid API<br/>POST /info<br/>type=vaultDetails] -->|HTTP POST (batched)| FLOW1
+  STATS["Hyperliquid Stats<br/>/Mainnet/vaults"] --> FLOW1
+  FLOW1 --> INFO["Hyperliquid API<br/>/info (vaultDetails)"]
 
   %% Prefect control plane
   subgraph PREFECT[Prefect Orchestration]
-    DEP1[Deployment<br/>hourly-vault-metrics<br/>Cron: 0 * * * * UTC] --> RUN1[Flow Run]
-    DEP2[Deployment<br/>4h-top-500<br/>Cron: 0 */4 * * * UTC] --> RUN2[Flow Run]
+    DEP1["Deployment<br/>hourly-vault-metrics<br/>Hourly (UTC)"] --> RUN1[Flow Run]
+    DEP2["Deployment<br/>4h-top-500<br/>Every 4 hours (UTC)"] --> RUN2[Flow Run]
   end
 
   %% Execution
   subgraph WORKER[Execution]
-    WORK[Prefect Worker<br/>(work pool)] --> RUN1
+    WORK["Prefect Worker<br/>(work pool)"] --> RUN1
     WORK --> RUN2
     FLOW1[upsert_vault_metrics_flow] --> VUP[Upsert vault rows]
-    FLOW1 --> MUP[Upsert metric rows<br/>(batched upsert)]
+    FLOW1 --> MUP["Upsert metric rows<br/>(batched upsert)"]
     RUN2 --> TOP[update_top_500_flow]
   end
 
@@ -53,8 +53,8 @@ flowchart TD
   %% Writes
   VUP --> VAULTS
   MUP --> METRICS
-  TOP -->|SELECT latest metrics<br/>rank by max_distributable_tvl| METRICS
-  TOP -->|WRITE| TOP500
+  TOP --> METRICS
+  TOP --> TOP500
 
   %% Orchestration wiring
   DEP1 --> WORK
