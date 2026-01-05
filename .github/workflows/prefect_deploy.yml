@@ -1,0 +1,54 @@
+name: Prefect Deploy
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "src/pipelines/flows/**"
+      - "scripts/deploy_prefect_flows.py"
+      - "requirements.txt"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
+      PREFECT_DEPLOY_SOURCE: ${{ secrets.PREFECT_DEPLOY_SOURCE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate Prefect config
+        run: |
+          if [ -z "$PREFECT_API_URL" ]; then
+            echo "Missing secrets.PREFECT_API_URL (e.g. https://<prefect-server>/api)" >&2
+            exit 1
+          fi
+          if [ -z "$PREFECT_DEPLOY_SOURCE" ]; then
+            echo "Missing secrets.PREFECT_DEPLOY_SOURCE (e.g. https://github.com/<org>/<repo>.git)" >&2
+            exit 1
+          fi
+          prefect version
+
+      - name: Ensure work pool exists
+        run: |
+          prefect work-pool inspect hyperliquid-vault-ingestion >/dev/null 2>&1 || \
+          prefect work-pool create hyperliquid-vault-ingestion --type process
+
+      - name: Deploy flows
+        run: |
+          python scripts/deploy_prefect_flows.py --work-pool hyperliquid-vault-ingestion

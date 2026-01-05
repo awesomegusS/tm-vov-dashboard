@@ -1,19 +1,13 @@
 # Railway (Prefect Server + Worker)
 
-This repo includes a `Procfile` for hosting Prefect Server and a Prefect Worker on Railway.
+This setup runs a Prefect Server service on Railway, plus a separate Prefect Worker service.
 
-## Files
-
-- `Procfile`
-  - `web`: starts Prefect Server
-  - `worker`: starts Prefect Worker
-
-This repo also includes `start_worker.sh`, which the Procfile uses to ensure `git` is available at runtime (required for deployments that use Prefect’s `git_clone` pull step).
+In our working configuration, deployments use GitHub as code storage (Prefect `git_clone` pull step). The worker image is built from [Dockerfile.worker](Dockerfile.worker), which installs `git` so those pull steps succeed.
 
 ## Core idea
 
-- Prefect Server runs in the Railway `web` process.
-- Prefect Worker runs in the Railway `worker` process.
+- Prefect Server runs as a Railway service.
+- Prefect Worker runs as a separate Railway service.
 - Deployments are created against that server and executed by the worker (no Prefect Cloud managed compute quota).
 
 ## Quick setup (Railway)
@@ -37,24 +31,50 @@ This repo also includes `start_worker.sh`, which the Procfile uses to ensure `gi
 
 After deploy, note the public URL for this service.
 
-4) Create a Railway service for the worker:
+4) Create the work pool (one-time, after the server is reachable)
 
-- Procfile process: `worker`
-- Env vars:
-  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
-  - `DATABASE_URL` = Postgres URL for your app DB (where `vaults`/`vault_metrics` live)
-
-5) One-time initialization (run from your laptop):
+You must create the process work pool on the server before the worker can pick up runs.
 
 ```bash
 export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
 prefect work-pool create hyperliquid-vault-ingestion --type process
+```
 
-python scripts/deploy_prefect_flows.py \
-  --work-pool hyperliquid-vault-ingestion
+5) Create a Railway service for the worker:
+
+Recommended: build the worker using [Dockerfile.worker](Dockerfile.worker). Railway will build and run this container for the worker service.
+
+- Env vars:
+  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
+  - `DATABASE_URL` = Postgres URL for your app DB (where `vaults`/`vault_metrics` live)
+  - Optional: `PREFECT_WORK_POOL` (default is set in [Dockerfile.worker](Dockerfile.worker))
+
+6) Create/update deployments (run from your laptop):
+
+```bash
+export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
+
+# Set the repo used as Prefect code storage
+# e.g.
+export PREFECT_DEPLOY_SOURCE="https://github.com/awesomegusS/tm-vov-dashboard.git"
+
+# If your script is written to use remote source (GitHub storage), this registers
+# deployments that will `git_clone` at runtime.
+python scripts/deploy_prefect_flows.py --work-pool hyperliquid-vault-ingestion
 ```
 
 Once deployments exist, Railway’s worker will pick up scheduled runs.
+
+7) (Optional) Local smoke test: start a worker locally
+
+If you want to quickly verify the server + pool wiring (and see runs picked up), you can start a process worker locally.
+
+Important: set your local `PREFECT_API_URL` to the same public API URL used by the Prefect UI setting:
+
+```bash
+export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
+prefect worker start --pool hyperliquid-vault-ingestion
+```
 
 ## Minimum required configuration
 
@@ -71,60 +91,21 @@ For the Prefect UI to work in the browser on Railway, also set:
 
 Note: `PREFECT_UI_API_URL` is the same setting as `PREFECT_SERVER_UI_API_URL`.
 
-## Troubleshooting: Deployment shows “Not Ready”
+## GitHub Actions (optional)
 
-In Prefect, a deployment/work pool is “Not Ready” when **no worker is connected and polling that work pool**.
+You can automate “create work pool (idempotent) + redeploy deployments” on each change to flow code or the deployment script.
 
-Quick confirm (from your laptop):
+- Workflow file: `.github/workflows/prefect_deploy.yml`
+- Required GitHub repo secret: `PREFECT_API_URL` (set to `https://<prefect-server-public-domain>/api`)
+- Required GitHub repo secret: `PREFECT_DEPLOY_SOURCE` (git URL used for deployments)
 
-```bash
-export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
-prefect work-pool inspect hyperliquid-vault-ingestion
-```
+## Worker build notes
 
-If it shows `status=WorkPoolStatus.NOT_READY`, fix it by ensuring your Railway **worker** service is actually running:
-
-- You need a second Railway service (separate from the server `web` service).
-- Start command must run the worker process, e.g. `prefect worker start --pool hyperliquid-vault-ingestion`.
-- Worker env vars must include:
-  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
-  - `DATABASE_URL` = your app DB URL
-
-Once the worker connects, Prefect will mark the work pool/deployments as ready and scheduled runs will start executing.
-
-Tip: verify you’re running the right process
-
-- If your Railway logs say “Found web command in Procfile” and show `prefect server start ...`, that service is running the **server**, not the **worker**.
-- The worker service logs should show `prefect worker start --pool hyperliquid-vault-ingestion`.
-
-## Troubleshooting: Flow run crashes during `git_clone` ("No such file or directory: 'git'")
-
-If your deployment uses remote code storage (like this repo’s `scripts/deploy_prefect_flows.py`), Prefect will run a `git_clone` pull step at flow-run start.
-
-Symptom:
-
-- Flow run enters `Crashed` quickly
-- Logs include: `FileNotFoundError: [Errno 2] No such file or directory: 'git'`
-
-Fix on Railway:
-
-- Ensure the worker runtime includes `git`.
-- This repo includes a [nixpacks.toml](nixpacks.toml) that installs `git` via `nixPkgs` (and keeps `aptPkgs` as a fallback).
-- Redeploy the Railway worker service so the new runtime image is built.
-
-## Alternative strategy: Run the worker as a Docker container
-
-If you want to bypass Nixpacks entirely for the worker, this repo includes a dedicated worker Dockerfile:
-
-- [Dockerfile.worker](Dockerfile.worker)
-
-Railway setup (worker service):
-
-- Deploy method: Dockerfile
-- Dockerfile path: `Dockerfile.worker`
+- Worker service deploy method: Dockerfile
+- Dockerfile path: [Dockerfile.worker](Dockerfile.worker)
 - Runtime env vars:
   - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
   - `DATABASE_URL` = your app DB URL
   - Optional: `PREFECT_WORK_POOL` (default: `hyperliquid-vault-ingestion`)
 
-This guarantees `git` is installed in the worker image so Prefect deployments that use `git_clone` can start.
+This is what ensures `git` is present for git-based code storage pull steps.

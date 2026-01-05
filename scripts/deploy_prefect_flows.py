@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 from dataclasses import dataclass
 from typing import Any
 from prefect.schedules import Cron
 
 
 
-DEFAULT_SOURCE = "https://github.com/awesomegusS/tm-vov-dashboard.git"
+DEFAULT_SOURCE = os.getenv("PREFECT_DEPLOY_SOURCE")
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,11 @@ def main() -> None:
 		help="Schedule timezone for the cron (default: UTC).",
 	)
 	args = p.parse_args()
+
+	if args.use_remote_source and not args.source:
+		raise SystemExit(
+			"Missing deployment code storage source. Set PREFECT_DEPLOY_SOURCE or pass --source."
+		)
 
 	deploy_from_source(
 		use_remote_source=args.use_remote_source,
