@@ -1,0 +1,7 @@
+# Railway Nixpacks configuration
+# Ensures OS-level dependencies required at runtime are present.
+
+[phases.setup]
+# Prefect deployments in this repo use the `git_clone` pull step.
+# The worker needs `git` available at runtime to clone the repo.
+aptPkgs = ["git"]

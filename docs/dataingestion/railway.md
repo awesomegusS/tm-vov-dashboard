@@ -2,22 +2,6 @@
 
 This repo includes a `Procfile` for hosting Prefect Server and a Prefect Worker on Railway.
 
-## What the Railway “web” service is
-
-The Railway `web` process runs **Prefect Server**.
-
-- It exposes the **Prefect API** at `/api`.
-- It also serves the **Prefect UI** in the browser.
-
-Yes: this is where you’ll see your Prefect resources (work pools, deployments, runs, logs).
-
-Important distinction:
-
-- This is **not** your application’s custom dashboard UI.
-- This is Prefect’s UI for orchestration/observability.
-
-Your flows will show up there once you create deployments against that server.
-
 ## Files
 
 - `Procfile`
@@ -42,6 +26,12 @@ Your flows will show up there once you create deployments against that server.
 - Env vars:
   - `PREFECT_API_DATABASE_CONNECTION_URL` = Postgres URL for Prefect metadata
     - If you run into driver issues, try `postgresql+asyncpg://...`.
+  - `PREFECT_SERVER_API_HOST` = `0.0.0.0`
+  - `PREFECT_UI_API_URL` = `https://<prefect-server-public-domain>/api`
+    - This is critical on Railway. If this is missing or wrong, the Prefect UI can try to call
+      `http://127.0.0.1:4200/api` (or another non-public address) and you’ll see “Can’t connect to Server API”.
+    - Include the full scheme (`https://...`). If the UI receives an `api_url` without a scheme
+      from `/ui-settings`, the UI may render as a blank page.
 
 After deploy, note the public URL for this service.
 
@@ -72,3 +62,50 @@ At minimum:
 - `DATABASE_URL` on the worker: the app Postgres URL (vaults/metrics tables)
 
 Prefect Server also needs its own metadata DB URL (Prefect’s internal DB), typically configured as `PREFECT_API_DATABASE_CONNECTION_URL`.
+
+For the Prefect UI to work in the browser on Railway, also set:
+
+- `PREFECT_UI_API_URL` on the server: `https://<prefect-server-public-domain>/api`
+
+Note: `PREFECT_UI_API_URL` is the same setting as `PREFECT_SERVER_UI_API_URL`.
+
+## Troubleshooting: Deployment shows “Not Ready”
+
+In Prefect, a deployment/work pool is “Not Ready” when **no worker is connected and polling that work pool**.
+
+Quick confirm (from your laptop):
+
+```bash
+export PREFECT_API_URL="https://<prefect-server-public-domain>/api"
+prefect work-pool inspect hyperliquid-vault-ingestion
+```
+
+If it shows `status=WorkPoolStatus.NOT_READY`, fix it by ensuring your Railway **worker** service is actually running:
+
+- You need a second Railway service (separate from the server `web` service).
+- Start command must run the worker process, e.g. `prefect worker start --pool hyperliquid-vault-ingestion`.
+- Worker env vars must include:
+  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
+  - `DATABASE_URL` = your app DB URL
+
+Once the worker connects, Prefect will mark the work pool/deployments as ready and scheduled runs will start executing.
+
+Tip: verify you’re running the right process
+
+- If your Railway logs say “Found web command in Procfile” and show `prefect server start ...`, that service is running the **server**, not the **worker**.
+- The worker service logs should show `prefect worker start --pool hyperliquid-vault-ingestion`.
+
+## Troubleshooting: Flow run crashes during `git_clone` ("No such file or directory: 'git'")
+
+If your deployment uses remote code storage (like this repo’s `scripts/deploy_prefect_flows.py`), Prefect will run a `git_clone` pull step at flow-run start.
+
+Symptom:
+
+- Flow run enters `Crashed` quickly
+- Logs include: `FileNotFoundError: [Errno 2] No such file or directory: 'git'`
+
+Fix on Railway:
+
+- Ensure the worker runtime includes `git`.
+- This repo includes a [nixpacks.toml](nixpacks.toml) that installs `git` via `aptPkgs`.
+- Redeploy the Railway worker service so the new runtime image is built.
