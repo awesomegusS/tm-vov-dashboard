@@ -111,3 +111,20 @@ Fix on Railway:
 - Ensure the worker runtime includes `git`.
 - This repo includes a [nixpacks.toml](nixpacks.toml) that installs `git` via `nixPkgs` (and keeps `aptPkgs` as a fallback).
 - Redeploy the Railway worker service so the new runtime image is built.
+
+## Alternative strategy: Run the worker as a Docker container
+
+If you want to bypass Nixpacks entirely for the worker, this repo includes a dedicated worker Dockerfile:
+
+- [Dockerfile.worker](Dockerfile.worker)
+
+Railway setup (worker service):
+
+- Deploy method: Dockerfile
+- Dockerfile path: `Dockerfile.worker`
+- Runtime env vars:
+  - `PREFECT_API_URL` = `https://<prefect-server-public-domain>/api`
+  - `DATABASE_URL` = your app DB URL
+  - Optional: `PREFECT_WORK_POOL` (default: `hyperliquid-vault-ingestion`)
+
+This guarantees `git` is installed in the worker image so Prefect deployments that use `git_clone` can start.

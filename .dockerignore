@@ -1,0 +1,17 @@
+.git
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+*.db
+.env
+
+# Local data artifacts
+/data/
+/archive/
+
+# VS Code / OS
+.DS_Store
+.vscode/

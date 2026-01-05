@@ -1,0 +1,23 @@
+FROM python:3.13-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY . /app
+
+ENV PYTHONUNBUFFERED=1 \
+  PIP_NO_CACHE_DIR=1 \
+  PREFECT_WORK_POOL=hyperliquid-vault-ingestion
+
+# Provide these at runtime:
+# - PREFECT_API_URL=https://<your-prefect-server>/api
+# - DATABASE_URL=postgresql://...
+CMD ["sh", "-c", "prefect worker start --pool ${PREFECT_WORK_POOL}"]
