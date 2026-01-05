@@ -38,6 +38,7 @@ flowchart TD
   subgraph WORKER[Execution]
     WORK["Prefect Worker<br/>(work pool)"] --> RUN1
     WORK --> RUN2
+    RUN1 --> FLOW1
     FLOW1[upsert_vault_metrics_flow] --> VUP[Upsert vault rows]
     FLOW1 --> MUP["Upsert metric rows<br/>(batched upsert)"]
     RUN2 --> TOP[update_top_500_flow]
