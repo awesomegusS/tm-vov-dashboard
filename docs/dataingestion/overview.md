@@ -44,10 +44,10 @@ flowchart TD
   end
 
   %% Storage
-  subgraph DB[(Postgres: hyperliquid_vaults_discovery)]
-    VAULTS[(vaults)]
-    METRICS[(vault_metrics)]
-    TOP500[(top_500_vaults)]
+  subgraph DB["Postgres: hyperliquid_vaults_discovery"]
+    VAULTS["vaults"]
+    METRICS["vault_metrics"]
+    TOP500["top_500_vaults"]
   end
 
   %% Writes
