@@ -12,8 +12,16 @@ def load_prefect_secret(block_name: str) -> Optional[str]:
     """
     try:
         from prefect.blocks.system import Secret
+        from prefect.utilities.asyncutils import run_coro_as_sync
 
-        value = Secret.load(block_name).get()
+        # Prefect has both sync (`load`) and async (`aload`) variants; depending on
+        # version/runner, `load()` may return an awaitable. Handle both safely.
+        if hasattr(Secret, "aload"):
+            block = run_coro_as_sync(Secret.aload(block_name))
+        else:
+            block = Secret.load(block_name)
+
+        value = block.get()
         if value is None:
             return None
         value = str(value).strip()

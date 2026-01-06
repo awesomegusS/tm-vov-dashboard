@@ -76,3 +76,21 @@ pytest -q
 ```bash
 RUN_INTEGRATION=1 pytest -q -k defillama_integration
 ```
+
+## 7) Run the flow locally
+
+Use the local runner script:
+
+- Dry-run (no DB writes):
+
+```bash
+python scripts/run_evm_pools_flow_local.py --no-persist --erc4626-targets-file data/erc4626-targets-felix.json
+```
+
+- Persist to Postgres (requires `DATABASE_URL` to be set in `.env` or environment):
+
+```bash
+python scripts/run_evm_pools_flow_local.py --erc4626-targets-file data/erc4626-targets-felix.json
+```
+
+By default this runs without Prefect Cloud/Server (ephemeral/local execution). To use your configured Prefect API, pass `--use-prefect-api`.

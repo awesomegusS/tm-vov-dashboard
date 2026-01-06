@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import json
+import asyncio
 
 import logging
 
@@ -19,9 +21,11 @@ from prefect import flow, get_run_logger, task
 from prefect.exceptions import MissingContextError
 from sqlalchemy.dialects.postgresql import insert
 
+from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.evm_pool import EvmPool, EvmPoolMetric
 from src.services.defillama_client import DefiLlamaClient
+from src.services.erc4626_client import Erc4626Client
 
 
 def _get_logger() -> logging.Logger:
@@ -149,6 +153,100 @@ def build_evm_pool_metric_rows(pools: list[dict[str, Any]]) -> list[dict[str, An
     return rows
 
 
+def _load_erc4626_targets() -> list[dict[str, Any]]:
+    """Load configured ERC-4626 target vaults.
+
+    Expected JSON format (list of objects):
+      [{"protocol": "Felix", "vault_address": "0x...", "name": "..."}, ...]
+    """
+    raw = settings.ERC4626_TARGET_VAULTS_JSON
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [p for p in parsed if isinstance(p, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def _normalize_address(value: Any) -> str | None:
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    return s
+
+
+async def fetch_erc4626_target_pools() -> list[dict[str, Any]]:
+    """Fetch target ERC-4626 vaults on-chain as a DeFi Llama-like pool list.
+
+    This is a best-effort fallback when DeFi Llama yields does not include a
+    target protocol.
+    """
+    logger = _get_logger()
+
+    targets = _load_erc4626_targets()
+    if not targets:
+        return []
+
+    rpc_url = settings.HYPEREVM_RPC_URL
+    if not rpc_url:
+        logger.warning("ERC-4626 targets configured but HYPEREVM_RPC_URL is not set; skipping")
+        return []
+
+    client = Erc4626Client(rpc_url)
+    now = datetime.now(timezone.utc)
+    ts = int(now.timestamp())
+
+    hyperevm_usdc = (settings.HYPEREVM_USDC_ADDRESS or "").lower()
+
+    async def _one(target: dict[str, Any]) -> dict[str, Any] | None:
+        protocol = target.get("protocol")
+        vault_address = _normalize_address(target.get("vault_address") or target.get("address"))
+        if not protocol or not vault_address:
+            return None
+
+        snap = await client.get_vault_snapshot(vault_address)
+
+        # Compute tvlUsd only when the underlying asset is USDC (1 USDC == 1 USD).
+        tvl_usd = None
+        asset_addr = (snap.asset_address or "").lower()
+        if hyperevm_usdc and asset_addr == hyperevm_usdc:
+            tvl_norm = snap.total_assets_normalized()
+            if tvl_norm is not None:
+                tvl_usd = float(tvl_norm)
+        elif (snap.asset_symbol or "").upper() == "USDC":
+            tvl_norm = snap.total_assets_normalized()
+            if tvl_norm is not None:
+                tvl_usd = float(tvl_norm)
+
+        vault_name = target.get("name") or snap.vault_name or snap.vault_symbol
+        vault_symbol = target.get("symbol") or snap.vault_symbol or snap.asset_symbol
+
+        return {
+            # Mimic DeFi Llama yields keys where possible.
+            "pool": str(vault_address),
+            "project": str(protocol),
+            "poolMeta": vault_name,
+            "name": vault_name,
+            "symbol": vault_symbol,
+            "address": str(vault_address),
+            "chain": "HyperEVM",
+            "timestamp": ts,
+            "tvlUsd": tvl_usd,
+            # No APY data available from on-chain read alone.
+            "apyBase": None,
+            "apyReward": None,
+            "apy": None,
+        }
+
+    rows = await asyncio.gather(*[_one(t) for t in targets])
+    return [r for r in rows if isinstance(r, dict)]
+
+
 async def persist_evm_pools(pools: list[dict[str, Any]]) -> tuple[int, int]:
     """Persist pool metadata and metrics rows to the DB.
 
@@ -217,6 +315,12 @@ async def fetch_defillama_pools() -> list[dict[str, Any]]:
     return await client.get_hyperliquid_pools()
 
 
+@task(retries=3, retry_delay_seconds=[10, 30, 60])
+async def fetch_erc4626_target_pools_task() -> list[dict[str, Any]]:
+    """Fetch configured target ERC-4626 pools on-chain."""
+    return await fetch_erc4626_target_pools()
+
+
 @task
 async def persist_evm_pools_task(pools: list[dict[str, Any]]) -> tuple[int, int]:
     """Prefect task wrapper for DB persistence."""
@@ -224,10 +328,33 @@ async def persist_evm_pools_task(pools: list[dict[str, Any]]) -> tuple[int, int]
 
 
 @flow(name="evm-pools-sync", log_prints=True)
-async def sync_evm_pools_flow() -> tuple[int, int]:
-    """Hourly: Fetch DeFi Llama pools for Hyperliquid/HyperEVM and persist."""
+async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
+    """Hourly: Fetch DeFi Llama pools for Hyperliquid/HyperEVM.
+
+    Args:
+        persist: When True (default), upsert pools + metrics into Postgres.
+            When False, run a local dry-run (fetch + transform) and return
+            row counts without touching the DB.
+    """
     logger = get_run_logger()
     pools = await fetch_defillama_pools()
     pools = flag_usdc_pools(pools)
+
+    # On-chain fallback for target protocols (ERC-4626).
+    # This is driven by config, so it is safe to call every run.
+    onchain = await fetch_erc4626_target_pools_task()
+    if onchain:
+        onchain = flag_usdc_pools(onchain)
+        # De-dupe by pool id (DeFi Llama's `pool` key).
+        by_id: dict[str, dict[str, Any]] = {str(p.get("pool")): p for p in pools if p.get("pool")}
+        for p in onchain:
+            pid = p.get("pool")
+            if pid:
+                by_id[str(pid)] = p
+        pools = list(by_id.values())
+
     logger.info(f"Fetched {len(pools)} EVM pools")
+    if not persist:
+        return (len(build_evm_pool_rows(pools)), len(build_evm_pool_metric_rows(pools)))
+
     return await persist_evm_pools_task(pools)
