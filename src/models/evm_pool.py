@@ -59,9 +59,11 @@ class EvmPoolMetric(Base):
     )
 
     tvl_usd = Column(Numeric(20, 2))
-    apy_base = Column(Numeric(10, 6))
-    apy_reward = Column(Numeric(10, 6))
-    apy_total = Column(Numeric(10, 6))
+    # DeFi Llama APYs can exceed 10,000 (percent) for some pools.
+    # Use a wider precision than NUMERIC(10, 6) to avoid overflows.
+    apy_base = Column(Numeric(20, 6))
+    apy_reward = Column(Numeric(20, 6))
+    apy_total = Column(Numeric(20, 6))
 
     # Keep as the last columns (per acceptance criteria)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
