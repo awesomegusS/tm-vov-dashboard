@@ -18,7 +18,8 @@ sys.path.insert(0, os.getcwd())
 from src.core.config import settings
 from src.core.database import Base
 # Must import ALL models here so Alembic detects them
-from src.models.vault import Vault, VaultMetric 
+from src.models.vault import Vault, VaultMetric
+from src.models.evm_pool import EvmPool, EvmPoolMetric
 # --- CUSTOM IMPORTS END ---
 
 # this is the Alembic Config object, which provides

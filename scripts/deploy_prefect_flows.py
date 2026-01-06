@@ -36,6 +36,11 @@ DEPLOYMENTS: tuple[DeploymentSpec, ...] = (
 		cron="0 * * * *",
 	),
 	DeploymentSpec(
+		name="hourly-evm-pools",
+		entrypoint="src/pipelines/flows/evm_pools.py:sync_evm_pools_flow",
+		cron="0 * * * *",
+	),
+	DeploymentSpec(
 		name="4h-top-500",
 		entrypoint="src/pipelines/flows/upsert_vaults.py:update_top_500_flow",
 		cron="0 */4 * * *",
