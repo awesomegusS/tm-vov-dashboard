@@ -156,8 +156,8 @@ def build_evm_pool_metric_rows(pools: list[dict[str, Any]]) -> list[dict[str, An
 def _load_erc4626_targets() -> list[dict[str, Any]]:
     """Load configured ERC-4626 target vaults.
 
-    Expected JSON format (list of objects):
-      [{"protocol": "Felix", "vault_address": "0x...", "name": "..."}, ...]
+        Expected JSON format (list of objects):
+            [{"protocol": "Hyperbeat", "vault_address": "0x...", "name": "..."}, ...]
     """
     raw = settings.ERC4626_TARGET_VAULTS_JSON
     if not raw:
