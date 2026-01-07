@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     #   {"protocol": "Hyperlend", "vault_address": "0x..."}
     # ]
     # Option A (recommended locally): point to a JSON file in-repo.
-    # Example: data/erc4626-targets-felix.json
+    # Default: data/erc4626-targets-hyperbeat.json
     ERC4626_TARGET_VAULTS_FILE: str | None = Field(
         env_or_prefect_secret("ERC4626_TARGET_VAULTS_FILE", "erc4626-target-vaults-file"),
         alias="ERC4626_TARGET_VAULTS_FILE",
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
 
         # 2) Local dev fallback: read the repo's default targets file if it exists.
         repo_root = Path(__file__).resolve().parents[2]
-        default_path = repo_root / "data" / "erc4626-targets-felix.json"
+        default_path = repo_root / "data" / "erc4626-targets-hyperbeat.json"
         raw = _read_text_file(default_path)
         if raw:
             self.ERC4626_TARGET_VAULTS_JSON = raw
