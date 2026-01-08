@@ -249,35 +249,35 @@ async def persist_evm_pools(pools: list[dict[str, Any]]) -> tuple[int, int]:
     return (pools_written, metrics_written)
 
 
-@task(retries=3, retry_delay_seconds=[10, 30, 60])
+@task(retries=5, retry_delay_seconds=[10, 20, 30, 60, 120])
 async def fetch_defillama_pools() -> list[dict[str, Any]]:
     """Fetch Hyperliquid/HyperEVM pools from DeFi Llama."""
     client = DefiLlamaClient()
     return await client.get_hyperliquid_pools()
 
 
-@task(retries=3, retry_delay_seconds=[10, 30, 60])
+@task(retries=5, retry_delay_seconds=[10, 20, 30, 60, 120])
 def fetch_felix_pools() -> list[dict[str, Any]]:
     """Fetch pools from Felix Protocol."""
     client = FelixClient()
     return client.fetch_pools()
 
 
-@task(retries=3, retry_delay_seconds=[10, 30, 60])
+@task(retries=5, retry_delay_seconds=[10, 20, 30, 60, 120])
 def fetch_hyperlend_pools() -> list[dict[str, Any]]:
     """Fetch pools from Hyperlend."""
     client = HyperlendClient()
     return client.fetch_pools()
 
 
-@task(retries=3, retry_delay_seconds=[10, 30, 60])
+@task(retries=5, retry_delay_seconds=[10, 20, 30, 60, 120])
 def fetch_hypurrfi_pools() -> list[dict[str, Any]]:
     """Fetch pools from HypurrFi."""
     client = HypurrFiClient()
     return client.fetch_pools()
 
 
-@task(retries=3, retry_delay_seconds=[10, 30, 60])
+@task(retries=5, retry_delay_seconds=[10, 20, 30, 60, 120])
 def fetch_hyperbeat_pools() -> list[dict[str, Any]]:
     """Fetch pools from Hyperbeat."""
     client = HyperbeatClient()
@@ -320,7 +320,7 @@ async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
     f_hb = fetch_hyperbeat_pools.submit()
 
     # Wait for results
-    pools_dl = await f_dl.result()
+    pools_dl = f_dl.result()
     pools_felix = f_felix.result()
     pools_hl = f_hl.result()
     pools_hf = f_hf.result()
