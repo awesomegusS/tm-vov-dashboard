@@ -290,48 +290,40 @@ async def persist_evm_pools_task(pools: list[dict[str, Any]]) -> tuple[int, int]
     return await persist_evm_pools(pools)
 
 
+
 @flow(name="evm-pools-sync", log_prints=True)
 async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
-    """Hourly: Fetch pools for Hyperliquid/HyperEVM.
-
-    Sources:
-    - DeFi Llama
-    - Felix
-    - Hyperlend
-    - HypurrFi
-    - Hyperbeat
-
-    Args:
-        persist: When True (default), upsert pools + metrics into Postgres.
-            When False, run a local dry-run (fetch + transform) and return
-            row counts without touching the DB.
-    """
+    """Hourly: Fetch pools for Hyperliquid/HyperEVM."""
     logger = get_run_logger()
     
-    # 1. Fetch from all sources in parallel (where possible)
-    # Note: Sync tasks (Felix, etc.) will run in threads by Prefect automatically unless configured otherwise.
-    # DefiLlama is async.
+    # --- CRITICAL FIX: Run Sequentially to avoid RPC Rate Limits ---
+    # Do NOT use .submit() here. Running these in parallel triggers the 
+    # global 100 req/min limit immediately.
     
-    # We can submit tasks to run concurrently
-    f_dl = fetch_defillama_pools.submit()
-    f_felix = fetch_felix_pools.submit()
-    f_hl = fetch_hyperlend_pools.submit()
-    f_hf = fetch_hypurrfi_pools.submit()
-    f_hb = fetch_hyperbeat_pools.submit()
-
-    # Wait for results
-    pools_dl = f_dl.result()
-    pools_felix = f_felix.result()
-    pools_hl = f_hl.result()
-    pools_hf = f_hf.result()
-    pools_hb = f_hb.result()
-
-    # 2. Combine results
-    # Priority: Specific Clients > DefiLlama ?
-    # Or just merge effectively. DefiLlama might duplicate what clients find.
-    # We use pool_id as the unique key. The clients generate robust data, DefiLlama might be stale or less detailed.
-    # We'll merge list, letting later entries overwrite earlier ones if we build a dict by ID.
+    logger.info("Starting sequential fetch...")
     
+    # 1. DeFi Llama (Async)
+    pools_dl = await fetch_defillama_pools()
+    logger.info(f"DeFi Llama fetched {len(pools_dl)} pools")
+
+    # 2. Felix
+    # Run in thread explicitly if needed, or just direct call if task allows
+    pools_felix = fetch_felix_pools() 
+    logger.info(f"Felix fetched {len(pools_felix)} pools")
+
+    # 3. Hyperlend
+    pools_hl = fetch_hyperlend_pools()
+    logger.info(f"Hyperlend fetched {len(pools_hl)} pools")
+
+    # 4. HypurrFi
+    pools_hf = fetch_hypurrfi_pools()
+    logger.info(f"HypurrFi fetched {len(pools_hf)} pools")
+
+    # 5. Hyperbeat
+    pools_hb = fetch_hyperbeat_pools()
+    logger.info(f"Hyperbeat fetched {len(pools_hb)} pools")
+    
+    # ... (Keep existing deduplication and persistence logic) ...
     all_pools_list = pools_dl + pools_felix + pools_hl + pools_hf + pools_hb
     
     # Deduplicate by pool_id.

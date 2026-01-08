@@ -63,19 +63,34 @@ class HypurrFiClient:
         self.w3 = Web3(Web3.HTTPProvider(self.RPC_URL))
         self.pool_addresses_provider = Web3.to_checksum_address(self.POOL_ADDRESSES_PROVIDER)
 
-    def _call_with_retry(self, contract_func, max_retries=5, initial_delay=2):
+    # def _call_with_retry(self, contract_func, max_retries=5, initial_delay=2):
+    #     for attempt in range(max_retries):
+    #         try:
+    #             return contract_func.call()
+    #         except Exception as e:
+    #             error_str = str(e).lower()
+    #             if "rate limited" in error_str or "-32005" in error_str:
+    #                 delay = initial_delay * (attempt + 1)
+    #                 logger.warning(f"Rate limit hit in HypurrFiClient. Sleeping {delay}s before retry {attempt+1}/{max_retries}...")
+    #                 time.sleep(delay)
+    #             else:
+    #                 raise e
+    #     raise Exception(f"Failed after {max_retries} retries due to rate limits.")
+    def _call_with_retry(self, contract_func, max_retries=5):
         for attempt in range(max_retries):
             try:
                 return contract_func.call()
             except Exception as e:
                 error_str = str(e).lower()
+                # Check for rate limit specific codes/messages
                 if "rate limited" in error_str or "-32005" in error_str:
-                    delay = initial_delay * (attempt + 1)
-                    logger.warning(f"Rate limit hit in HypurrFiClient. Sleeping {delay}s before retry {attempt+1}/{max_retries}...")
+                    # Exponential Backoff: 2, 4, 8, 16, 32 seconds
+                    delay = 2 ** (attempt + 1)
+                    logger.warning(f"Rate limit hit. Sleeping {delay}s...")
                     time.sleep(delay)
                 else:
                     raise e
-        raise Exception(f"Failed after {max_retries} retries due to rate limits.")
+        raise Exception("Failed after max retries")
 
     def _parse_configuration(self, conf_data):
         ltv = (conf_data & 0xFFFF) / 100.0  
