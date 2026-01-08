@@ -341,6 +341,11 @@ async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
     # This assumes Client data is better.
     
     by_id: dict[str, dict[str, Any]] = {}
+
+    # Initialize clients to get expected counts
+    client_felix = FelixClient()
+    client_hb = HyperbeatClient()
+    # Hyperlend/HypurrFi are dynamic, so expected is unknown/dynamic
     
     # First pass: Populate with all.
     # Since pool_id is what matters.
@@ -365,7 +370,14 @@ async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
 
     pools = list(by_id.values())
 
-    logger.info(f"Fetched {len(pools)} EVM pools total (DL: {len(pools_dl)}, Felix: {len(pools_felix)}, HL: {len(pools_hl)}, HF: {len(pools_hf)}, HB: {len(pools_hb)})")
+    logger.info(
+        f"Fetched {len(pools)} EVM pools total ("
+        f"DL: {len(pools_dl)}, "
+        f"Felix: {len(pools_felix)}/{client_felix.expected_count}, "
+        f"HL: {len(pools_hl)}, "
+        f"HF: {len(pools_hf)}, "
+        f"HB: {len(pools_hb)}/{client_hb.expected_count})"
+    )
 
     if not persist:
         # Dry run stats

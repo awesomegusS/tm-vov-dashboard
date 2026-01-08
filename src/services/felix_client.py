@@ -84,6 +84,13 @@ class FelixClient:
         self.w3 = Web3(Web3.HTTPProvider(self.RPC_URL))
         self.oracle_address = Web3.to_checksum_address(self.ORACLE_ADDRESS)
 
+    @property
+    def expected_count(self) -> int:
+        # Note: self.VAULTS is not defined for FelixClient based on the file content I read, only LENDING_VAULTS and CDP_MARKETS.
+        # But wait, looking at the code I read in previous steps, I saw CDP_MARKETS and LENDING_VAULTS. I didn't see a `VAULTS` dictionary.
+        # Let me double check if `VAULTS` exists or if it was a typo in my previous edit.
+        return len(self.CDP_MARKETS) + len(self.LENDING_VAULTS)
+
     def _call_with_retry(self, contract_func, max_retries=5, initial_delay=2):
         for attempt in range(max_retries):
             try:

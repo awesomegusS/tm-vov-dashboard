@@ -52,6 +52,11 @@ class HyperbeatClient:
         self.w3 = Web3(Web3.HTTPProvider(self.RPC_URL))
         self.oracle_address = Web3.to_checksum_address(self.ORACLE_ADDRESS)
 
+    @property
+    def expected_count(self) -> int:
+        """Return the number of configured vaults to fetch."""
+        return len(self.VAULTS)
+
     def _call_with_retry(self, contract_func, max_retries=5, initial_delay=2):
         for attempt in range(max_retries):
             try:
