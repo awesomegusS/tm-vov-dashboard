@@ -1,0 +1,57 @@
+[
+  {
+    "protocol": "Hyperbeat",
+    "name": "HYPE Vault",
+    "vault_address": "0x96c6cbb6251ee1c257b2162ca0f39aa5fa44b1fb"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "UBTC Vault",
+    "vault_address": "0xc061d38903b99ac12713b550c2cb44b221674f94"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "USDT Vault",
+    "vault_address": "0x5e105266db42f78fa814322bce7f388b4c2e61eb"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "XAUt Vault",
+    "vault_address": "0x6eb6724d8d3d4ff9e24d872e8c38403169dc05f8"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "LST Vault",
+    "vault_address": "0x81e064d0eb539de7c3170edf38c1a42cbd752a76"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "liquidHYPE Vault",
+    "vault_address": "0x441794d6a8f9a3739f5d4e98a728937b33489d29"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "Ventuals (HIP3) VLP",
+    "vault_address": "0xd66d69c288d9a6fd735d7be8b2e389970fc4fd42"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "dnHYPE",
+    "vault_address": "0x949a7250bb55eb79bc6bcc97fcd1c473db3e6f29"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "dnPUMP",
+    "vault_address": "0x8858a307a85982c2b3cb2ace1720237f2f09c39b"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "USDC Vault",
+    "vault_address": "0x057ced81348d57aad579a672d521d7b4396e8a61"
+  },
+  {
+    "protocol": "Hyperbeat",
+    "name": "wNLP",
+    "vault_address": "0x4cc221cf144333510a634ce0d8209d2d11b9bb0a"
+  }
+]
