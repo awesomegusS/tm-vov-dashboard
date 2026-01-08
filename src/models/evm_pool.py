@@ -10,7 +10,7 @@ all Hyperliquid-related ingestion data co-located.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Numeric, String, ForeignKey, text
+from sqlalchemy import Boolean, Column, DateTime, Numeric, String, ForeignKey, text, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -40,6 +40,16 @@ class EvmPool(Base):
     # Postgres boolean literal; avoid func.false() which would compile to false().
     accepts_usdc = Column(Boolean, nullable=False, server_default=text("false"))
 
+    # Risk Parameters (Static info)
+    ltv = Column(Numeric(10, 4))
+    liquidation_threshold = Column(Numeric(10, 4))
+    liquidation_bonus = Column(Numeric(10, 4))
+    reserve_factor = Column(Numeric(10, 4))
+    decimals = Column(Integer)
+    
+    # Source identifier (e.g., 'defillama', 'felix', 'hypurrfi', 'hyperlend', 'hyperbeat')
+    source = Column(String(50))
+
     # Keep as the last columns (per acceptance criteria)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -64,6 +74,12 @@ class EvmPoolMetric(Base):
     apy_base = Column(Numeric(20, 6))
     apy_reward = Column(Numeric(20, 6))
     apy_total = Column(Numeric(20, 6))
+
+    # Borrowing & Usage Metrics
+    total_debt_usd = Column(Numeric(20, 2))
+    utilization_rate = Column(Numeric(10, 6))
+    apy_borrow_variable = Column(Numeric(10, 6))
+    apy_borrow_stable = Column(Numeric(10, 6))
 
     # Keep as the last columns (per acceptance criteria)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
