@@ -7,6 +7,7 @@ __pycache__/
 data/vaults-*.json
 data/vaults-latest.json
 data/vaults-summary-latest.json
+data
 
 # Local scratch scripts
 rando.py

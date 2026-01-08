@@ -1,38 +1,21 @@
-# DeFi Llama → Hyperliquid/HyperEVM Pools (Step-by-step)
+# Hybrid Ingestion: DeFi Llama + Direct RPC (EVM Pools)
 
-This guide shows how to fetch Hyperliquid + HyperEVM pools from DeFi Llama using:
+This guide shows how we fetch Hyperliquid + HyperEVM pools using a hybrid approach:
+1.  **DeFi Llama**: Broad coverage of pools via `GET https://yields.llama.fi/pools`.
+2.  **Direct RPC**: Richer, real-time data for specific protocols (Felix, Hyperlend, HypurrFi, Hyperbeat) via direct chain calls.
 
-- `GET https://yields.llama.fi/pools`
+## 1) Data Sources
 
-## 1) Call the endpoint
+### A. DeFi Llama (General Discovery)
+We fetch the global pool list and filter for `chain="HyperEVM"` or `chain="Hyperliquid"`. This provides basic TVL and APY data for most pools.
 
-The response is JSON with a top-level `data` array of pool objects.
+### B. Direct RPC Clients (Protocol-Specific)
+For key ecosystem partners, we use custom Python clients (`src/services/*_client.py`) that query on-chain contracts via the HyperEVM RPC `https://rpc.hyperliquid.xyz/evm`. This allows us to fetch deeper metrics not available on DeFi Llama:
+- **Risk Params**: LTV, Liquidation Thresholds, Reserve Factors.
+- **Borrow Metrics**: Total Debt, Utilization Rates, Borrow APYs (Variable/Stable).
+- **Metadata**: Exact token decimals, underlying asset addresses.
 
-Example (raw httpx):
-
-```python
-import httpx
-
-url = "https://yields.llama.fi/pools"
-resp = httpx.get(url, timeout=30)
-resp.raise_for_status()
-payload = resp.json()
-pools = payload.get("data", [])
-```
-
-## 2) Filter to Hyperliquid / HyperEVM
-
-Each pool includes a `chain` field. Filter case-insensitively:
-
-```python
-wanted = {"hyperliquid", "hyperevm"}
-filtered = [
-    p for p in pools
-    if (p.get("chain") or "").lower() in wanted
-]
-```
-
-## 3) Flag USDC-accepting pools
+## 2) Flag USDC-accepting pools
 
 For the MVP heuristic, we mark pools that contain `"usdc"` in their symbol:
 
@@ -51,14 +34,19 @@ We store two tables:
 
 Common fields from DeFi Llama that we store:
 
-- Pool metadata: `pool` (id), `project` (protocol), `poolMeta` (name-ish), `symbol`, `address`
-- Metrics: `tvlUsd`, `apyBase`, `apyReward`, `apy`, plus `timestamp`
+- Pool metadata: `pool` (id), `project` (protocol), `poolMeta` (name-ish), `symbol`, `contract_address`, `ltv`, `liquidation_threshold`, `decimals`
+- Metrics: `tvlUsd`, `apyBase`, `apyReward`, `apy`, `total_debt_usd`, `utilization_rate`, `apy_borrow_variable`, `apy_borrow_stable`, plus `timestamp`
 
 ## 5) Use the project client + flow
 
-This repo includes a small client wrapper and an hourly Prefect flow:
+This repo includes client wrappers and an hourly Prefect flow:
 
-- Client: `src/services/defillama_client.py`
+- Clients:
+    * `src/services/defillama_client.py`
+    * `src/services/felix_client.py`
+    * `src/services/hyperlend_client.py`
+    * `src/services/hypurrfi_client.py`
+    * `src/services/hyperbeat_client.py`
 - Flow: `src/pipelines/flows/evm_pools.py` (`sync_evm_pools_flow`)
 
 The deployment is registered in `scripts/deploy_prefect_flows.py` as `hourly-evm-pools`.
@@ -71,7 +59,7 @@ The deployment is registered in `scripts/deploy_prefect_flows.py` as `hourly-evm
 pytest -q
 ```
 
-- Integration test (calls DeFi Llama; opt-in):
+- Integration test (opt-in):
 
 ```bash
 RUN_INTEGRATION=1 pytest -q -k defillama_integration
@@ -79,18 +67,18 @@ RUN_INTEGRATION=1 pytest -q -k defillama_integration
 
 ## 7) Run the flow locally
 
-Use the local runner script:
+Use the local runner script (if available) or run module:
 
 - Dry-run (no DB writes):
 
 ```bash
-python scripts/run_evm_pools_flow_local.py --no-persist --erc4626-targets-file data/erc4626-targets-felix.json
+python scripts/run_evm_pools_flow_local.py --no-persist
 ```
 
 - Persist to Postgres (requires `DATABASE_URL` to be set in `.env` or environment):
 
 ```bash
-python scripts/run_evm_pools_flow_local.py --erc4626-targets-file data/erc4626-targets-felix.json
+python scripts/run_evm_pools_flow_local.py
 ```
 
 By default this runs without Prefect Cloud/Server (ephemeral/local execution). To use your configured Prefect API, pass `--use-prefect-api`.

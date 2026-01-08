@@ -25,7 +25,10 @@ from src.core.config import settings
 from src.core.database import AsyncSessionLocal
 from src.models.evm_pool import EvmPool, EvmPoolMetric
 from src.services.defillama_client import DefiLlamaClient
-from src.services.erc4626_client import Erc4626Client
+from src.services.felix_client import FelixClient
+from src.services.hyperbeat_client import HyperbeatClient
+from src.services.hyperlend_client import HyperlendClient
+from src.services.hypurrfi_client import HypurrFiClient
 
 
 def _get_logger() -> logging.Logger:
@@ -94,28 +97,38 @@ def build_evm_pool_rows(pools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(p, dict):
             continue
 
-        pool_id = p.get("pool")
+        pool_id = p.get("pool") or p.get("pool_id")
         if not pool_id:
             continue
 
         # DeFi Llama sometimes omits an explicit contract address; use the first
         # underlying token address as a fallback when available.
-        underlying = p.get("underlyingTokens")
-        underlying0 = None
-        if isinstance(underlying, list) and underlying:
-            underlying0 = underlying[0]
+        contract_address = p.get("contract_address")
+        if not contract_address:
+            contract_address = p.get("address") or p.get("contractAddress")
+            underlying = p.get("underlyingTokens")
+            if not contract_address and isinstance(underlying, list) and underlying:
+                contract_address = underlying[0]
+
+        # Determine source
+        source = p.get("source")
+        if not source:
+            source = "defillama"
 
         rows.append(
             {
                 "pool_id": str(pool_id),
-                # The yields endpoint typically uses `project` as the protocol.
-                "protocol": p.get("project") or p.get("protocol"),
-                # `poolMeta` is often the pool display name; fall back to symbol.
-                "name": p.get("poolMeta") or p.get("name") or p.get("symbol"),
+                "protocol": p.get("protocol") or p.get("project"),
+                "name": p.get("name") or p.get("poolMeta") or p.get("symbol"),
                 "symbol": p.get("symbol"),
-                "contract_address": p.get("address") or p.get("contractAddress") or underlying0,
+                "contract_address": contract_address,
                 "accepts_usdc": bool(p.get("accepts_usdc", False)),
-                # Keep timestamps explicit so we can set updated_at on upserts.
+                "ltv": p.get("ltv"),
+                "liquidation_threshold": p.get("liquidation_threshold"),
+                "liquidation_bonus": p.get("liquidation_bonus"),
+                "reserve_factor": p.get("reserve_factor"),
+                "decimals": p.get("decimals"),
+                "source": source,
                 "created_at": now,
                 "updated_at": now,
             }
@@ -133,18 +146,26 @@ def build_evm_pool_metric_rows(pools: list[dict[str, Any]]) -> list[dict[str, An
         if not isinstance(p, dict):
             continue
 
-        pool_id = p.get("pool")
+        pool_id = p.get("pool") or p.get("pool_id")
         if not pool_id:
             continue
+        
+        # Timestamps: DeFi Llama uses "timestamp", our clients use current time (so None in p) or implicit
+        ts_val = p.get("timestamp")
+        timestampz = _timestamp_to_datetime_utc(ts_val) if ts_val else now
 
         rows.append(
             {
-                "timestampz": _timestamp_to_datetime_utc(p.get("timestamp")),
+                "timestampz": timestampz,
                 "pool_id": str(pool_id),
-                "tvl_usd": p.get("tvlUsd"),
-                "apy_base": p.get("apyBase"),
-                "apy_reward": p.get("apyReward"),
-                "apy_total": p.get("apy"),
+                "tvl_usd": p.get("tvl_usd") if p.get("tvl_usd") is not None else p.get("tvlUsd"),
+                "apy_base": p.get("apy_base") if p.get("apy_base") is not None else p.get("apyBase"),
+                "apy_reward": p.get("apy_reward") if p.get("apy_reward") is not None else p.get("apyReward"),
+                "apy_total": p.get("apy_total") if p.get("apy_total") is not None else p.get("apy"),
+                "total_debt_usd": p.get("total_debt_usd"),
+                "utilization_rate": p.get("utilization_rate"),
+                "apy_borrow_variable": p.get("apy_borrow_variable"),
+                "apy_borrow_stable": p.get("apy_borrow_stable"),
                 "created_at": now,
                 "updated_at": now,
             }
@@ -153,98 +174,8 @@ def build_evm_pool_metric_rows(pools: list[dict[str, Any]]) -> list[dict[str, An
     return rows
 
 
-def _load_erc4626_targets() -> list[dict[str, Any]]:
-    """Load configured ERC-4626 target vaults.
-
-        Expected JSON format (list of objects):
-            [{"protocol": "Hyperbeat", "vault_address": "0x...", "name": "..."}, ...]
-    """
-    raw = settings.ERC4626_TARGET_VAULTS_JSON
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [p for p in parsed if isinstance(p, dict)]
-        return []
-    except Exception:
-        return []
 
 
-def _normalize_address(value: Any) -> str | None:
-    if not value:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    return s
-
-
-async def fetch_erc4626_target_pools() -> list[dict[str, Any]]:
-    """Fetch target ERC-4626 vaults on-chain as a DeFi Llama-like pool list.
-
-    This is a best-effort fallback when DeFi Llama yields does not include a
-    target protocol.
-    """
-    logger = _get_logger()
-
-    targets = _load_erc4626_targets()
-    if not targets:
-        return []
-
-    rpc_url = settings.HYPEREVM_RPC_URL
-    if not rpc_url:
-        logger.warning("ERC-4626 targets configured but HYPEREVM_RPC_URL is not set; skipping")
-        return []
-
-    client = Erc4626Client(rpc_url)
-    now = datetime.now(timezone.utc)
-    ts = int(now.timestamp())
-
-    hyperevm_usdc = (settings.HYPEREVM_USDC_ADDRESS or "").lower()
-
-    async def _one(target: dict[str, Any]) -> dict[str, Any] | None:
-        protocol = target.get("protocol")
-        vault_address = _normalize_address(target.get("vault_address") or target.get("address"))
-        if not protocol or not vault_address:
-            return None
-
-        snap = await client.get_vault_snapshot(vault_address)
-
-        # Compute tvlUsd only when the underlying asset is USDC (1 USDC == 1 USD).
-        tvl_usd = None
-        asset_addr = (snap.asset_address or "").lower()
-        if hyperevm_usdc and asset_addr == hyperevm_usdc:
-            tvl_norm = snap.total_assets_normalized()
-            if tvl_norm is not None:
-                tvl_usd = float(tvl_norm)
-        elif (snap.asset_symbol or "").upper() == "USDC":
-            tvl_norm = snap.total_assets_normalized()
-            if tvl_norm is not None:
-                tvl_usd = float(tvl_norm)
-
-        vault_name = target.get("name") or snap.vault_name or snap.vault_symbol
-        vault_symbol = target.get("symbol") or snap.vault_symbol or snap.asset_symbol
-
-        return {
-            # Mimic DeFi Llama yields keys where possible.
-            "pool": str(vault_address),
-            "project": str(protocol),
-            "poolMeta": vault_name,
-            "name": vault_name,
-            "symbol": vault_symbol,
-            "address": str(vault_address),
-            "chain": "HyperEVM",
-            "timestamp": ts,
-            "tvlUsd": tvl_usd,
-            # No APY data available from on-chain read alone.
-            "apyBase": None,
-            "apyReward": None,
-            "apy": None,
-        }
-
-    rows = await asyncio.gather(*[_one(t) for t in targets])
-    return [r for r in rows if isinstance(r, dict)]
 
 
 async def persist_evm_pools(pools: list[dict[str, Any]]) -> tuple[int, int]:
@@ -280,6 +211,12 @@ async def persist_evm_pools(pools: list[dict[str, Any]]) -> tuple[int, int]:
                         "symbol": stmt.excluded.symbol,
                         "contract_address": stmt.excluded.contract_address,
                         "accepts_usdc": stmt.excluded.accepts_usdc,
+                        "ltv": stmt.excluded.ltv,
+                        "liquidation_threshold": stmt.excluded.liquidation_threshold,
+                        "liquidation_bonus": stmt.excluded.liquidation_bonus,
+                        "reserve_factor": stmt.excluded.reserve_factor,
+                        "decimals": stmt.excluded.decimals,
+                        "source": stmt.excluded.source,
                         "updated_at": stmt.excluded.updated_at,
                     },
                 )
@@ -298,6 +235,10 @@ async def persist_evm_pools(pools: list[dict[str, Any]]) -> tuple[int, int]:
                         "apy_base": stmt.excluded.apy_base,
                         "apy_reward": stmt.excluded.apy_reward,
                         "apy_total": stmt.excluded.apy_total,
+                        "total_debt_usd": stmt.excluded.total_debt_usd,
+                        "utilization_rate": stmt.excluded.utilization_rate,
+                        "apy_borrow_variable": stmt.excluded.apy_borrow_variable,
+                        "apy_borrow_stable": stmt.excluded.apy_borrow_stable,
                         "updated_at": stmt.excluded.updated_at,
                     },
                 )
@@ -316,9 +257,31 @@ async def fetch_defillama_pools() -> list[dict[str, Any]]:
 
 
 @task(retries=3, retry_delay_seconds=[10, 30, 60])
-async def fetch_erc4626_target_pools_task() -> list[dict[str, Any]]:
-    """Fetch configured target ERC-4626 pools on-chain."""
-    return await fetch_erc4626_target_pools()
+def fetch_felix_pools() -> list[dict[str, Any]]:
+    """Fetch pools from Felix Protocol."""
+    client = FelixClient()
+    return client.fetch_pools()
+
+
+@task(retries=3, retry_delay_seconds=[10, 30, 60])
+def fetch_hyperlend_pools() -> list[dict[str, Any]]:
+    """Fetch pools from Hyperlend."""
+    client = HyperlendClient()
+    return client.fetch_pools()
+
+
+@task(retries=3, retry_delay_seconds=[10, 30, 60])
+def fetch_hypurrfi_pools() -> list[dict[str, Any]]:
+    """Fetch pools from HypurrFi."""
+    client = HypurrFiClient()
+    return client.fetch_pools()
+
+
+@task(retries=3, retry_delay_seconds=[10, 30, 60])
+def fetch_hyperbeat_pools() -> list[dict[str, Any]]:
+    """Fetch pools from Hyperbeat."""
+    client = HyperbeatClient()
+    return client.fetch_pools()
 
 
 @task
@@ -329,7 +292,14 @@ async def persist_evm_pools_task(pools: list[dict[str, Any]]) -> tuple[int, int]
 
 @flow(name="evm-pools-sync", log_prints=True)
 async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
-    """Hourly: Fetch DeFi Llama pools for Hyperliquid/HyperEVM.
+    """Hourly: Fetch pools for Hyperliquid/HyperEVM.
+
+    Sources:
+    - DeFi Llama
+    - Felix
+    - Hyperlend
+    - HypurrFi
+    - Hyperbeat
 
     Args:
         persist: When True (default), upsert pools + metrics into Postgres.
@@ -337,24 +307,69 @@ async def sync_evm_pools_flow(*, persist: bool = True) -> tuple[int, int]:
             row counts without touching the DB.
     """
     logger = get_run_logger()
-    pools = await fetch_defillama_pools()
-    pools = flag_usdc_pools(pools)
+    
+    # 1. Fetch from all sources in parallel (where possible)
+    # Note: Sync tasks (Felix, etc.) will run in threads by Prefect automatically unless configured otherwise.
+    # DefiLlama is async.
+    
+    # We can submit tasks to run concurrently
+    f_dl = fetch_defillama_pools.submit()
+    f_felix = fetch_felix_pools.submit()
+    f_hl = fetch_hyperlend_pools.submit()
+    f_hf = fetch_hypurrfi_pools.submit()
+    f_hb = fetch_hyperbeat_pools.submit()
 
-    # On-chain fallback for target protocols (ERC-4626).
-    # This is driven by config, so it is safe to call every run.
-    onchain = await fetch_erc4626_target_pools_task()
-    if onchain:
-        onchain = flag_usdc_pools(onchain)
-        # De-dupe by pool id (DeFi Llama's `pool` key).
-        by_id: dict[str, dict[str, Any]] = {str(p.get("pool")): p for p in pools if p.get("pool")}
-        for p in onchain:
-            pid = p.get("pool")
-            if pid:
-                by_id[str(pid)] = p
-        pools = list(by_id.values())
+    # Wait for results
+    pools_dl = await f_dl.result()
+    pools_felix = f_felix.result()
+    pools_hl = f_hl.result()
+    pools_hf = f_hf.result()
+    pools_hb = f_hb.result()
 
-    logger.info(f"Fetched {len(pools)} EVM pools")
+    # 2. Combine results
+    # Priority: Specific Clients > DefiLlama ?
+    # Or just merge effectively. DefiLlama might duplicate what clients find.
+    # We use pool_id as the unique key. The clients generate robust data, DefiLlama might be stale or less detailed.
+    # We'll merge list, letting later entries overwrite earlier ones if we build a dict by ID.
+    
+    all_pools_list = pools_dl + pools_felix + pools_hl + pools_hf + pools_hb
+    
+    # Deduplicate by pool_id.
+    # Using a dict to keep the *last* seen version.
+    # Order matters: If we want Client data to override DefiLlama, put Clients last.
+    # Currently order is DL -> Felix -> HL -> HF -> HB.
+    # This assumes Client data is better.
+    
+    by_id: dict[str, dict[str, Any]] = {}
+    
+    # First pass: Populate with all.
+    # Since pool_id is what matters.
+    # Note: DefiLlama might use a different pool_id format than our clients?
+    # Clients use contract_address/asset_address as pool_id.
+    # DefiLlama usually uses "0x..." address or "project-slug".
+    # Assuming DefiLlama uses address for EVM pools.
+    
+    for p in all_pools_list:
+        pid = p.get("pool") or p.get("pool_id")
+        if pid:
+            # Normalize to lower case string for comparison?
+            # DB is case sensitive? But addresses usually checksummed.
+            # Best to trust the source's formatting but convert to string.
+            pid_str = str(pid)
+            
+            # Use 'pool_id' key if 'pool' is missing (Client data uses 'pool_id')
+            if "pool" not in p:
+                p["pool"] = pid_str
+                
+            by_id[pid_str] = p
+
+    pools = list(by_id.values())
+
+    logger.info(f"Fetched {len(pools)} EVM pools total (DL: {len(pools_dl)}, Felix: {len(pools_felix)}, HL: {len(pools_hl)}, HF: {len(pools_hf)}, HB: {len(pools_hb)})")
+
     if not persist:
+        # Dry run stats
         return (len(build_evm_pool_rows(pools)), len(build_evm_pool_metric_rows(pools)))
 
     return await persist_evm_pools_task(pools)
+

@@ -8,25 +8,7 @@ from src.pipelines.flows.evm_pools import (
     _timestamp_to_datetime_utc,
     build_evm_pool_metric_rows,
     build_evm_pool_rows,
-    flag_usdc_pools,
 )
-
-
-def test_flag_usdc_pools_sets_accepts_usdc_true_when_symbol_contains_usdc() -> None:
-    """Pools that contain 'usdc' in symbol are flagged as accepting USDC."""
-    pools = [
-        {"symbol": "USDC", "pool": "p1"},
-        {"symbol": "eth", "pool": "p2"},
-        {"symbol": "kUSDC-ETH", "pool": "p3"},
-        {"symbol": None, "pool": "p4"},
-    ]
-
-    out = flag_usdc_pools(pools)
-
-    assert out[0]["accepts_usdc"] is True
-    assert out[1]["accepts_usdc"] is False
-    assert out[2]["accepts_usdc"] is True
-    assert out[3]["accepts_usdc"] is False
 
 
 def test_timestamp_to_datetime_utc_handles_seconds_and_millis() -> None:
@@ -42,7 +24,7 @@ def test_timestamp_to_datetime_utc_handles_seconds_and_millis() -> None:
 
 def test_build_rows_skips_missing_pool_id() -> None:
     """Rows are only built when 'pool' (pool_id) is present."""
-    pools = [{"chain": "Hyperliquid"}, {"pool": "p1", "symbol": "ETH"}]
+    pools = [{"chain": "Hyperliquid"}, {"pool": "p1", "symbol": "ETH", "source": "defillama"}]
 
     pool_rows = build_evm_pool_rows(pools)
     metric_rows = build_evm_pool_metric_rows(pools)
@@ -50,4 +32,31 @@ def test_build_rows_skips_missing_pool_id() -> None:
     assert len(pool_rows) == 1
     assert len(metric_rows) == 1
     assert pool_rows[0]["pool_id"] == "p1"
+    assert pool_rows[0]["source"] == "defillama"
     assert metric_rows[0]["pool_id"] == "p1"
+
+def test_build_rows_handles_new_metrics() -> None:
+    """Ensure new metrics in EvmPoolMetric are captured."""
+    pools = [{
+        "pool": "p1",
+        "symbol": "ETH",
+        "tvl_usd": 1000.0,
+        "total_debt_usd": 500.0,
+        "utilization_rate": 50.0,
+        "apy_borrow_variable": 5.0,
+        "apy_borrow_stable": 2.0,
+        "source": "felix"
+    }]
+
+    pool_rows = build_evm_pool_rows(pools)
+    metric_rows = build_evm_pool_metric_rows(pools)
+
+    assert len(pool_rows) == 1
+    assert pool_rows[0]["source"] == "felix"
+    
+    m = metric_rows[0]
+    assert m["tvl_usd"] == 1000.0
+    assert m["total_debt_usd"] == 500.0
+    assert m["utilization_rate"] == 50.0
+    assert m["apy_borrow_variable"] == 5.0
+    assert m["apy_borrow_stable"] == 2.0
