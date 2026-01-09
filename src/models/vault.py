@@ -18,7 +18,7 @@ class Vault(Base):
     tvl_usd = Column(Numeric(20, 2)) # what's on the table at vaults webpage
     is_closed = Column(Boolean, default=False)
     relationship_type = Column(String(20))
-    vault_create_time = Column(String(20))
+    vault_create_time = Column(DateTime(timezone=True))
 
     created_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
