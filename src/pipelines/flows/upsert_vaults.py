@@ -47,7 +47,7 @@ def build_vault_rows(vaults_json: List[Dict[str, Any]]):
                 "leader_address": summary.get("leader") or v.get("leader"),
                 "description": v.get("description") or summary.get("description"), # this is in details endpoint
                 "tvl_usd": summary.get("tvl"),
-                "is_closed": summary.get("isClosed", None) or v.get("isClosed", None),
+                "is_closed": summary.get("isClosed") or v.get("isClosed") or False,
                 "relationship_type": (v.get("relationship") or {}).get("type") or summary.get("relationshipType"),
                 "vault_create_time": _convert_millis_to_datetime(summary), # fixed create time logging
                 "created_at":  datetime.now(timezone.utc),
@@ -78,6 +78,7 @@ async def upsert_vault_rows(rows: List[Dict[str, Any]]):
                         "description": stmt.excluded.description,
                         "tvl_usd": stmt.excluded.tvl_usd,
                         "relationship_type": stmt.excluded.relationship_type,
+                        "vault_create_time": stmt.excluded.vault_create_time,
                         "updated_at": stmt.excluded.updated_at,
                     },
                 )
