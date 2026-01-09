@@ -45,11 +45,11 @@ def build_vault_rows(vaults_json: List[Dict[str, Any]]):
                 "vault_address": addr,
                 "name": summary.get("name") or v.get("name"),
                 "leader_address": summary.get("leader") or v.get("leader"),
-                "description": v.get("description") or summary.get("description"),
+                "description": v.get("description") or summary.get("description"), # this is in details endpoint
                 "tvl_usd": summary.get("tvl"),
-                "is_closed": summary.get("isClosed") or v.get("isClosed") or False,
+                "is_closed": summary.get("isClosed", None) or v.get("isClosed", None),
                 "relationship_type": (v.get("relationship") or {}).get("type") or summary.get("relationshipType"),
-                "vault_create_time": _convert_millis_to_datetime(v),
+                "vault_create_time": _convert_millis_to_datetime(summary.get("createTimeMillis")), # fixed create time logging
                 "created_at":  datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
             }
